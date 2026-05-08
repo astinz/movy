@@ -1,3 +1,4 @@
+#[cfg(feature = "sui")]
 pub mod arg;
 pub mod basic;
 pub mod havoc;

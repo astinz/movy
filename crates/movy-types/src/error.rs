@@ -1,5 +1,6 @@
 use std::string::FromUtf8Error;
 
+#[cfg(feature = "sui")]
 use sui_types::base_types::ObjectIDParseError;
 use thiserror::Error;
 
@@ -29,24 +30,32 @@ pub enum MovyError {
     TOML(#[from] toml::de::Error),
     #[error("io error: {0}")]
     IO(#[from] std::io::Error),
+    #[cfg(feature = "sui")]
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
     #[error("any: {0}")]
     Any(#[from] anyhow::Error),
     #[error("bcs: {0}")]
     BCS(#[from] bcs::Error),
+    #[cfg(feature = "sui")]
     #[error("oss: {0}")]
     OSS(#[from] object_store::Error),
+    #[cfg(feature = "sui")]
     #[error("mdbx: {0}")]
     MDBX(#[from] mdbx_derive::mdbx::ClientError),
+    #[cfg(feature = "sui")]
     #[error("derive: {0}")]
     Derive(#[from] mdbx_derive::Error),
+    #[cfg(feature = "sui")]
     #[error("sui: {0}")]
     SUI(#[from] sui_types::error::SuiError),
+    #[cfg(feature = "sui")]
     #[error("suisdk: {0}")]
     SUISDK(#[from] sui_sdk::error::Error),
+    #[cfg(feature = "sui")]
     #[error("binary: {0}")]
     Binary(#[from] move_binary_format::errors::PartialVMError),
+    #[cfg(feature = "fuzz")]
     #[error("libafl: {0}")]
     LIBAFL(#[from] libafl::Error),
     #[error("trace error: {0}, our fork is dead")]
@@ -57,6 +66,7 @@ pub enum MovyError {
     InvalidIdentifier(String),
     #[error("invalid seed: {0}")]
     InvalidSeed(String),
+    #[cfg(feature = "sui")]
     #[error("grpc: {0}")]
     Tonic(#[from] tonic::Status),
     #[error(transparent)]
@@ -64,13 +74,20 @@ pub enum MovyError {
 }
 
 trivial_other!(FromUtf8Error);
+#[cfg(feature = "sui")]
 trivial_other!(fastcrypto::error::FastCryptoError);
+#[cfg(feature = "sui")]
 trivial_other!(sui_types::error::ExecutionError);
+#[cfg(feature = "sui")]
 trivial_other!(tokio::task::JoinError);
+#[cfg(feature = "sui")]
 trivial_other!(ObjectIDParseError);
+#[cfg(feature = "sui")]
 trivial_other!(glob::GlobError);
+#[cfg(feature = "sui")]
 trivial_other!(glob::PatternError);
 
+#[cfg(feature = "fuzz")]
 impl From<MovyError> for libafl::Error {
     fn from(value: MovyError) -> Self {
         match value {

@@ -83,6 +83,21 @@ impl TryFrom<&Bytecode> for CmpOp {
     }
 }
 
+impl TryFrom<&str> for CmpOp {
+    type Error = MovyError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "LT" => Ok(Self::LT),
+            "LE" => Ok(Self::LE),
+            "GT" => Ok(Self::GT),
+            "GE" => Ok(Self::GE),
+            "NEQ" => Ok(Self::NEQ),
+            "EQ" => Ok(Self::EQ),
+            _ => Err(eyre!("{} not a cmp op", value).into()),
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct CmpLog {
     pub lhs: Magic,

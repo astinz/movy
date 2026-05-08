@@ -1,8 +1,10 @@
 use std::{collections::BTreeMap, fmt::Display, ops::Deref, str::FromStr};
 
 use alloy_primitives::{U128, U256};
+#[cfg(feature = "sui")]
 use color_eyre::eyre::eyre;
 use itertools::Itertools;
+#[cfg(feature = "sui")]
 use move_binary_format::{
     CompiledModule,
     file_format::{
@@ -10,11 +12,13 @@ use move_binary_format::{
         ModuleHandle, SignatureToken, StructDefinition, Visibility,
     },
 };
+#[cfg(feature = "sui")]
 use move_core_types::{
     annotated_value::MoveTypeLayout,
     annotated_value::{MoveFieldLayout, MoveStructLayout},
 };
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "sui")]
 use sui_types::{Identifier, base_types::ObjectID, object::Object};
 
 use crate::{
@@ -78,6 +82,7 @@ impl MoveAbility {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<AbilitySet> for MoveAbility {
     fn from(value: AbilitySet) -> Self {
         let mut ability = Self::empty();
@@ -113,6 +118,7 @@ impl MoveStructTypeParameters {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<DatatypeTyParameter> for MoveStructTypeParameters {
     fn from(value: DatatypeTyParameter) -> Self {
         Self {
@@ -137,6 +143,7 @@ pub struct MoveStructHandle {
 }
 
 impl MoveStructHandle {
+    #[cfg(feature = "sui")]
     pub fn from_module_idx(idx: DatatypeHandleIndex, module: &CompiledModule) -> Self {
         let dty = module.datatype_handle_at(idx);
         let sname = module.identifier_at(dty.name).to_string();
@@ -175,6 +182,7 @@ impl Deref for MoveStructAbi {
 }
 
 impl MoveStructAbi {
+    #[cfg(feature = "sui")]
     pub fn to_move_struct_layout(
         &self,
         typs: &[MoveTypeLayout],
@@ -199,6 +207,7 @@ impl MoveStructAbi {
             fields,
         ))
     }
+    #[cfg(feature = "sui")]
     pub fn from_module_def(def: &StructDefinition, module: &CompiledModule) -> Self {
         let handle = MoveStructHandle::from_module_idx(def.struct_handle, module);
         let tys = handle
@@ -371,6 +380,7 @@ impl MoveAbiSignatureToken {
         }
     }
 
+    #[cfg(feature = "sui")]
     pub fn to_move_type_layout(
         &self,
         typs: &[MoveTypeLayout],
@@ -458,6 +468,7 @@ impl MoveAbiSignatureToken {
             _ => None,
         }
     }
+    #[cfg(feature = "sui")]
     pub fn from_sui_token_module(
         value: &SignatureToken,
         tys: &Vec<MoveAbility>,
@@ -971,6 +982,7 @@ impl Display for MoveFunctionVisibility {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<Visibility> for MoveFunctionVisibility {
     fn from(value: Visibility) -> Self {
         match value {
@@ -1072,6 +1084,7 @@ impl Display for MoveFunctionAbi {
 }
 
 impl MoveFunctionAbi {
+    #[cfg(feature = "sui")]
     pub(crate) fn from_module_function_handle_visibility(
         fdecl: &FunctionHandle,
         module: &CompiledModule,
@@ -1103,6 +1116,7 @@ impl MoveFunctionAbi {
             return_paramters: returns,
         }
     }
+    #[cfg(feature = "sui")]
     pub fn from_module_def(fdef: &FunctionDefinition, module: &CompiledModule) -> Self {
         let fdecl = module.function_handle_at(fdef.function);
         let vis = MoveFunctionVisibility::from(fdef.visibility);
@@ -1117,6 +1131,7 @@ pub struct MoveModuleId {
 }
 
 impl MoveModuleId {
+    #[cfg(feature = "sui")]
     pub fn from_module_handle(handle: &ModuleHandle, module: &CompiledModule) -> Self {
         let module_address = module.address_identifier_at(handle.address);
         let module_name = module.identifier_at(handle.name);
@@ -1184,6 +1199,7 @@ impl MoveModuleAbi {
     pub fn is_test_only_module(&self) -> bool {
         self.functions.iter().any(|v| v.name == "unit_test_poison")
     }
+    #[cfg(feature = "sui")]
     pub fn from_sui_module(module: &CompiledModule) -> Self {
         let module_id: MoveAddress = (*module.address()).into();
         let module_name = module.name().to_string();
@@ -1233,6 +1249,7 @@ impl MovePackageAbi {
             }
         }
     }
+    #[cfg(feature = "sui")]
     pub fn from_sui_id_and_modules<'a>(
         id: ObjectID,
         modules: impl Iterator<Item = &'a CompiledModule>,
@@ -1247,6 +1264,7 @@ impl MovePackageAbi {
             modules: out_modules,
         })
     }
+    #[cfg(feature = "sui")]
     pub fn from_sui_package(pkg: &sui_types::move_package::MovePackage) -> Result<Self, MovyError> {
         let id = pkg.id();
         let modules = pkg
@@ -1256,6 +1274,7 @@ impl MovePackageAbi {
             .collect::<Result<Vec<_>, _>>()?;
         Self::from_sui_id_and_modules(id, modules.iter())
     }
+    #[cfg(feature = "sui")]
     pub fn from_sui_object(object: &Object) -> Result<Self, MovyError> {
         Self::from_sui_package(
             object

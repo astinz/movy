@@ -35,8 +35,8 @@ impl<T, S> SuiGeneralOracle<T, S> for PrecisionLossOracle {
             TraceEvent::BeforeInstruction {
                 pc, instruction, ..
             } => {
-                let loss = match instruction {
-                    move_binary_format::file_format::Bytecode::Mul => {
+                let loss = match instruction.as_str() {
+                    "MUL" => {
                         let stack_len = symbol_stack.stack.len();
                         if stack_len < 2 {
                             return Ok(vec![]);

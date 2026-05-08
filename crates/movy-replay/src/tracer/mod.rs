@@ -15,7 +15,8 @@ impl Tracer for NopTracer {
         _event: &move_trace_format::format::TraceEvent,
         _writer: &mut move_trace_format::interface::Writer<'_>,
         _stack: Option<&move_vm_stack::Stack>,
-    ) {
+    ) -> bool {
+        true
     }
 }
 
@@ -34,7 +35,7 @@ where
         event: &move_trace_format::format::TraceEvent,
         writer: &mut move_trace_format::interface::Writer<'_>,
         stack: Option<&move_vm_stack::Stack>,
-    ) {
+    ) -> bool {
         match self {
             Self::T1(t) => t.notify(event, writer, stack),
             Self::T2(t) => t.notify(event, writer, stack),
@@ -64,9 +65,11 @@ where
         event: &move_trace_format::format::TraceEvent,
         writer: &mut move_trace_format::interface::Writer<'_>,
         stack: Option<&move_vm_stack::Stack>,
-    ) {
+    ) -> bool {
         if let Some(tracer) = &mut self.tracer {
-            tracer.notify(event, writer, stack);
+            tracer.notify(event, writer, stack)
+        } else {
+            true
         }
     }
 }
@@ -86,8 +89,9 @@ where
         event: &move_trace_format::format::TraceEvent,
         writer: &mut move_trace_format::interface::Writer<'_>,
         stack: Option<&move_vm_stack::Stack>,
-    ) {
-        self.t1.notify(event, writer, stack);
-        self.t2.notify(event, writer, stack);
+    ) -> bool {
+        let keep_t1 = self.t1.notify(event, writer, stack);
+        let keep_t2 = self.t2.notify(event, writer, stack);
+        keep_t1 || keep_t2
     }
 }

@@ -43,12 +43,16 @@ tokio-stream = {workspace = true}
 tempfile = {workspace = true}
 sui-json-rpc-types = {workspace = true}
 
-movy-analysis = {workspace = true}
-movy-types = {workspace = true}
+movy-analysis = {workspace = true, optional = true}
+movy-types = {workspace = true, features = ["sui"]}
 movy-sui = {workspace = true}
 
 [build-dependencies]
 tempfile.workspace = true
 serde_json.workspace = true
 movy-sui = {workspace = true}
-movy-types = {workspace = true}
+movy-types = {workspace = true, features = ["sui"]}
+
+[features]
+default = []
+analysis = ["dep:movy-analysis"]

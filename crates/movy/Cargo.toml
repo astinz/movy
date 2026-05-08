@@ -14,16 +14,27 @@ dotenvy = {workspace = true}
 log = {workspace = true}
 color-eyre = {workspace = true}
 env_logger = {workspace = true}
-sui-types = {workspace = true}
-glob = {workspace = true}
+sui-types = {workspace = true, optional = true}
+glob = {workspace = true, optional = true}
 serde = {workspace = true}
 serde_json = {workspace = true}
 itertools = {workspace = true}
 bcs = {workspace = true}
 
-movy-fuzz = {workspace = true}
-movy-sui = {workspace = true}
-movy-types = {workspace = true}
-movy-replay = {workspace = true}
-movy-analysis = {workspace = true}
-movy-static-analysis = {workspace = true}
+movy-aptos = {workspace = true, optional = true}
+movy-fuzz = {workspace = true, features = ["sui"], optional = true}
+movy-sui = {workspace = true, optional = true}
+movy-types = {workspace = true, default-features = false}
+movy-replay = {workspace = true, optional = true}
+movy-analysis = {workspace = true, optional = true}
+movy-static-analysis = {workspace = true, optional = true}
+
+[features]
+default = ["sui", "analysis"]
+analysis = ["dep:glob", "dep:movy-analysis", "movy-analysis/sui", "movy-types/sui"]
+aptos = ["dep:movy-aptos"]
+sui = ["sui-trace", "sui-fuzz", "sui-replay", "sui-static-analysis"]
+sui-trace = ["dep:movy-replay", "dep:movy-sui", "dep:sui-types", "movy-types/sui"]
+sui-fuzz = ["sui-trace", "dep:movy-fuzz", "movy-fuzz/sui"]
+sui-replay = ["sui-trace", "dep:movy-fuzz", "movy-fuzz/sui"]
+sui-static-analysis = ["sui-trace", "dep:movy-static-analysis"]

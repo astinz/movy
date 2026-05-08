@@ -4,44 +4,25 @@ use color_eyre::eyre::eyre;
 use itertools::Itertools;
 use log::{debug, trace};
 use move_binary_format::CompiledModule;
-use move_compiler::editions::Flavor;
-use move_package::{
-    resolution::resolution_graph::ResolvedGraph, source_package::layout::SourcePackageLayout,
-};
 use movy_types::{
     abi::{MOVY_INIT, MOVY_ORACLE, MovePackageAbi},
     error::MovyError,
     input::MoveAddress,
 };
 use serde::{Deserialize, Serialize};
-use sui_move_build::{BuildConfig, CompiledPackage, build_from_resolution_graph, implicit_deps};
-use sui_package_management::{PublishedAtError, system_package_versions::latest_system_packages};
-use sui_types::{base_types::ObjectID, digests::get_mainnet_chain_identifier};
+use sui_move_build::{BuildConfig, CompiledPackage};
+use sui_types::base_types::ObjectID;
 
 pub fn build_package_resolved(
     folder: &Path,
     test_mode: bool,
-) -> Result<(CompiledPackage, ResolvedGraph), MovyError> {
-    let mut cfg = move_package::BuildConfig::default();
-    cfg.implicit_dependencies = implicit_deps(latest_system_packages());
-    cfg.default_flavor = Some(Flavor::Sui);
-    cfg.lock_file = Some(folder.join(SourcePackageLayout::Lock.path()));
-    cfg.test_mode = test_mode;
-    cfg.silence_warnings = true;
-
-    let cfg = BuildConfig {
-        config: cfg,
-        run_bytecode_verifier: false,
-        print_diags_to_stderr: false,
-        chain_id: Some(get_mainnet_chain_identifier().to_string()),
-    };
+) -> Result<CompiledPackage, MovyError> {
+    let mut cfg = BuildConfig::new_for_testing();
+    cfg.config.test_mode = test_mode;
+    cfg.run_bytecode_verifier = false;
+    cfg.print_diags_to_stderr = false;
     trace!("Build config is {:?}", &cfg.config);
-
-    // cfg.compile_package(path, writer) // reference
-    let chain_id = cfg.chain_id.clone();
-    let resolution_graph = cfg.resolution_graph(folder, chain_id.clone())?;
-    let artifacts = build_from_resolution_graph(resolution_graph.clone(), false, false, chain_id)?;
-    Ok((artifacts, resolution_graph))
+    Ok(cfg.build(folder)?)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,9 +30,42 @@ pub struct SuiCompiledPackage {
     pub package_id: ObjectID,
     pub package_name: String,
     pub package_names: Vec<String>,
+    #[serde(with = "compiled_modules_serde")]
     modules: Vec<CompiledModule>,
     dependencies: Vec<ObjectID>,
     published_dependencies: Vec<ObjectID>,
+}
+
+mod compiled_modules_serde {
+    use move_binary_format::{CompiledModule, file_format_common::VERSION_MAX};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as DeError};
+
+    pub fn serialize<S>(modules: &[CompiledModule], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut serialized_modules = Vec::with_capacity(modules.len());
+        for module in modules {
+            let mut bytes = Vec::new();
+            module
+                .serialize_with_version(VERSION_MAX, &mut bytes)
+                .map_err(serde::ser::Error::custom)?;
+            serialized_modules.push(bytes);
+        }
+        serialized_modules.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<CompiledModule>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Vec::<Vec<u8>>::deserialize(deserializer)?
+            .into_iter()
+            .map(|bytes| {
+                CompiledModule::deserialize_with_defaults(&bytes).map_err(D::Error::custom)
+            })
+            .collect()
+    }
 }
 
 impl SuiCompiledPackage {
@@ -143,18 +157,10 @@ impl SuiCompiledPackage {
         folder: &Path,
         test_mode: bool,
     ) -> Result<SuiCompiledPackage, MovyError> {
-        let (artifacts, _) = build_package_resolved(folder, test_mode)?;
-        debug!(
-            "artifacts dep: {:?}",
-            artifacts.dependency_graph.topological_order()
-        );
+        let artifacts = build_package_resolved(folder, test_mode)?;
         debug!("published: {:?}", artifacts.dependency_ids.published);
 
-        let root_address = match artifacts.published_at {
-            Ok(address) => address,
-            Err(PublishedAtError::NotPresent) => ObjectID::ZERO,
-            _ => return Err(eyre!("Invalid published-at: {:?}", &artifacts.published_at).into()),
-        };
+        let root_address = artifacts.published_at.unwrap_or(ObjectID::ZERO);
         debug!("Root address is {}", root_address);
         let package_name = artifacts
             .package

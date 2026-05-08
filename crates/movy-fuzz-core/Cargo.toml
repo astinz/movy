@@ -1,0 +1,28 @@
+[package]
+name = "movy-fuzz-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+movy-types = {workspace = true, default-features = false, features = ["fuzz"]}
+
+libafl = { workspace = true }
+rand_libafl = {workspace = true}
+rand_core_libafl = {workspace = true}
+libafl_bolts = { workspace = true }
+color-eyre = {workspace = true}
+serde_json_any_key = {workspace = true}
+alloy-primitives = {workspace = true, features = ["serde"]}
+serde_json.workspace = true
+serde.workspace = true
+log.workspace = true
+const-hex = {workspace = true}
+itertools = {workspace = true}
+anyhow = {workspace = true}
+
+[features]
+input_display = []

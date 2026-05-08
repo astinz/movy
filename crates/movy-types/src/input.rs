@@ -4,11 +4,13 @@ use std::{
 };
 
 use alloy_primitives::{B256, U128, U256};
+#[cfg(feature = "sui")]
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "sui")]
 use sui_types::{
     Identifier, TypeTag,
-    base_types::{ObjectID, ObjectRef, SequenceNumber, SuiAddress},
+    base_types::{ObjectID, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{
         Argument, Command, ObjectArg, ProgrammableMoveCall, ProgrammableTransaction,
@@ -69,32 +71,38 @@ impl Display for FunctionIdent {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<MoveAddress> for ObjectID {
     fn from(value: MoveAddress) -> Self {
         Self::new(value.0.0)
     }
 }
+#[cfg(feature = "sui")]
 impl From<MoveAddress> for SuiAddress {
     fn from(value: MoveAddress) -> Self {
         Self::from(ObjectID::from(value))
     }
 }
+#[cfg(feature = "sui")]
 impl From<MoveAddress> for AccountAddress {
     fn from(value: MoveAddress) -> Self {
         Self::new(value.0.0)
     }
 }
+#[cfg(feature = "sui")]
 impl From<AccountAddress> for MoveAddress {
     fn from(value: AccountAddress) -> Self {
         Self(B256::new(value.into_bytes()))
     }
 }
+#[cfg(feature = "sui")]
 impl From<SuiAddress> for MoveAddress {
     fn from(value: SuiAddress) -> Self {
         Self(value.to_inner().into())
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<ObjectID> for MoveAddress {
     fn from(value: ObjectID) -> Self {
         Self(B256::new(value.into_bytes()))
@@ -102,19 +110,20 @@ impl From<ObjectID> for MoveAddress {
 }
 
 impl MoveAddress {
+    #[cfg(feature = "sui")]
     pub fn random() -> Self {
         ObjectID::random().into()
     }
     pub fn to_canonical_string(&self, with_prefix: bool) -> String {
-        ObjectID::from(*self).to_canonical_string(with_prefix)
+        let hex = const_hex::encode(self.0.0);
+        if with_prefix { format!("0x{hex}") } else { hex }
     }
 
     pub fn is_sui_std(&self) -> bool {
-        let address: AccountAddress = (*self).into();
-        address == AccountAddress::ONE
-            || address == AccountAddress::TWO
-            || address == AccountAddress::from_suffix(3)
-            || address == AccountAddress::from_suffix(13)
+        *self == Self::one()
+            || *self == Self::two()
+            || *self == Self::from_suffix(3)
+            || *self == Self::from_suffix(13)
     }
 
     pub fn short(&self) -> String {
@@ -127,13 +136,20 @@ impl MoveAddress {
     }
 
     pub fn from_str(s: &str) -> Result<Self, MovyError> {
-        let Ok(object_id) = ObjectID::from_str(s) else {
+        let hex = s.strip_prefix("0x").unwrap_or(s);
+        if hex.is_empty() || hex.len() > 64 {
             return Err(MovyError::InvalidIdentifier(format!(
                 "Invalid MoveAddress string: {}",
                 s
             )));
-        };
-        Ok(Self::from(object_id))
+        }
+        let mut bytes = [0u8; 32];
+        let padded = format!("{hex:0>64}");
+        let decoded = const_hex::decode(padded).map_err(|e| {
+            MovyError::InvalidIdentifier(format!("Invalid MoveAddress string: {}: {}", s, e))
+        })?;
+        bytes.copy_from_slice(&decoded);
+        Ok(Self(B256::new(bytes)))
     }
 
     pub fn zero() -> Self {
@@ -145,11 +161,17 @@ impl MoveAddress {
     }
 
     pub fn one() -> Self {
-        Self::from(AccountAddress::ONE)
+        Self::from_suffix(1)
     }
 
     pub fn two() -> Self {
-        Self::from(AccountAddress::TWO)
+        Self::from_suffix(2)
+    }
+
+    pub fn from_suffix(suffix: u8) -> Self {
+        let mut bytes = [0u8; 32];
+        bytes[31] = suffix;
+        Self(B256::new(bytes))
     }
 }
 
@@ -173,13 +195,13 @@ impl FromStr for MoveAddress {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SuiObjectInputArgument {
-    ImmOrOwnedObject(ObjectRef),
+    ImmOrOwnedObject((MoveAddress, u64, [u8; 32])),
     SharedObject {
-        id: ObjectID,
-        initial_shared_version: SequenceNumber,
+        id: MoveAddress,
+        initial_shared_version: u64,
         mutable: bool,
     },
-    Receiving(ObjectRef),
+    Receiving((MoveAddress, u64, [u8; 32])),
 }
 
 impl SuiObjectInputArgument {
@@ -199,7 +221,7 @@ impl SuiObjectInputArgument {
         }
     }
 
-    pub fn id(&self) -> ObjectID {
+    pub fn id(&self) -> MoveAddress {
         match self {
             SuiObjectInputArgument::ImmOrOwnedObject((id, _, _)) => *id,
             SuiObjectInputArgument::Receiving((id, _, _)) => *id,
@@ -208,18 +230,23 @@ impl SuiObjectInputArgument {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<SuiObjectInputArgument> for ObjectArg {
     fn from(value: SuiObjectInputArgument) -> Self {
         match value {
-            SuiObjectInputArgument::ImmOrOwnedObject(v) => Self::ImmOrOwnedObject(v),
-            SuiObjectInputArgument::Receiving(v) => Self::Receiving(v),
+            SuiObjectInputArgument::ImmOrOwnedObject((id, version, digest)) => {
+                Self::ImmOrOwnedObject((id.into(), version.into(), digest.into()))
+            }
+            SuiObjectInputArgument::Receiving((id, version, digest)) => {
+                Self::Receiving((id.into(), version.into(), digest.into()))
+            }
             SuiObjectInputArgument::SharedObject {
                 id,
                 initial_shared_version,
                 mutable,
             } => Self::SharedObject {
-                id,
-                initial_shared_version,
+                id: id.into(),
+                initial_shared_version: initial_shared_version.into(),
                 mutability: if mutable {
                     SharedObjectMutability::Mutable
                 } else {
@@ -317,6 +344,7 @@ pub struct MoveStructTag {
 }
 
 // Sui
+#[cfg(feature = "sui")]
 impl From<MoveStructTag> for StructInput {
     fn from(value: MoveStructTag) -> Self {
         Self {
@@ -327,6 +355,7 @@ impl From<MoveStructTag> for StructInput {
         }
     }
 }
+#[cfg(feature = "sui")]
 impl TryFrom<MoveStructTag> for StructTag {
     type Error = MovyError;
 
@@ -346,6 +375,7 @@ impl TryFrom<MoveStructTag> for StructTag {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<StructTag> for MoveStructTag {
     fn from(value: StructTag) -> Self {
         Self {
@@ -388,10 +418,30 @@ impl FromStr for MoveStructTag {
     type Err = MovyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let struct_tag = StructTag::from_str(s).map_err(|e| {
-            MovyError::InvalidIdentifier(format!("Invalid StructTag string: {}: {}", s, e))
-        })?;
-        Ok(MoveStructTag::from(struct_tag))
+        #[cfg(feature = "sui")]
+        {
+            let struct_tag = StructTag::from_str(s).map_err(|e| {
+                MovyError::InvalidIdentifier(format!("Invalid StructTag string: {}: {}", s, e))
+            })?;
+            return Ok(MoveStructTag::from(struct_tag));
+        }
+
+        #[cfg(not(feature = "sui"))]
+        {
+            let parts: Vec<_> = s.split("::").collect();
+            if parts.len() != 3 {
+                return Err(MovyError::InvalidIdentifier(format!(
+                    "Invalid StructTag string: {}",
+                    s
+                )));
+            }
+            Ok(Self {
+                address: MoveAddress::from_str(parts[0])?,
+                module: parts[1].to_string(),
+                name: parts[2].to_string(),
+                tys: vec![],
+            })
+        }
     }
 }
 
@@ -413,7 +463,26 @@ pub enum MoveTypeTag {
 impl FromStr for MoveTypeTag {
     type Err = MovyError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        TypeTag::from_str(s).map_err(|e| e.into()).map(|v| v.into())
+        #[cfg(feature = "sui")]
+        {
+            return TypeTag::from_str(s).map_err(|e| e.into()).map(|v| v.into());
+        }
+
+        #[cfg(not(feature = "sui"))]
+        {
+            Ok(match s {
+                "bool" => Self::Bool,
+                "u8" => Self::U8,
+                "u16" => Self::U16,
+                "u32" => Self::U32,
+                "u64" => Self::U64,
+                "u128" => Self::U128,
+                "u256" => Self::U256,
+                "address" => Self::Address,
+                "signer" => Self::Signer,
+                _ => Self::Struct(MoveStructTag::from_str(s)?),
+            })
+        }
     }
 }
 
@@ -452,6 +521,7 @@ impl MoveTypeTag {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<MoveTypeTag> for TypeInput {
     fn from(value: MoveTypeTag) -> Self {
         match value {
@@ -488,6 +558,7 @@ impl Display for MoveTypeTag {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<TypeTag> for MoveTypeTag {
     fn from(value: TypeTag) -> Self {
         match value {
@@ -506,6 +577,7 @@ impl From<TypeTag> for MoveTypeTag {
     }
 }
 
+#[cfg(feature = "sui")]
 impl TryFrom<MoveTypeTag> for TypeTag {
     type Error = MovyError;
     fn try_from(value: MoveTypeTag) -> Result<Self, Self::Error> {
@@ -533,6 +605,7 @@ pub enum SequenceArgument {
     NestedResult(u16, u16),
 }
 
+#[cfg(feature = "sui")]
 impl From<SequenceArgument> for Argument {
     fn from(value: SequenceArgument) -> Self {
         match value {
@@ -608,6 +681,7 @@ impl Display for MoveCall {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<MoveCall> for ProgrammableMoveCall {
     fn from(value: MoveCall) -> Self {
         Self {
@@ -715,6 +789,7 @@ pub struct MoveSequence {
 }
 
 impl MoveSequence {
+    #[cfg(feature = "sui")]
     fn sui_builder_input_arg(
         builder: &mut ProgrammableTransactionBuilder,
         arg: &InputArgument,
@@ -749,6 +824,7 @@ impl MoveSequence {
         };
         Ok(v?)
     }
+    #[cfg(feature = "sui")]
     pub fn to_ptb(&self) -> Result<ProgrammableTransaction, MovyError> {
         let mut builder = ProgrammableTransactionBuilder::new();
 

@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use clap::Args;
 use color_eyre::eyre::eyre;
 use itertools::Itertools;
+#[cfg(feature = "sui-fuzz")]
 use movy_fuzz::meta::FuzzFunctionScore;
 use movy_replay::{
     db::{ObjectStoreCachedStore, ObjectStoreInfo},
@@ -113,6 +114,7 @@ impl SuiTargetArgs {
     }
 }
 
+#[cfg(feature = "sui-fuzz")]
 #[derive(Args, Clone, Debug, Serialize, Deserialize)]
 pub struct FuzzTargetArgs {
     #[arg(long, value_delimiter = ',', help = "Include specific packages")]

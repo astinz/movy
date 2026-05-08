@@ -1,4 +1,3 @@
-use move_binary_format::file_format::Bytecode;
 use move_core_types::u256::U256;
 use move_trace_format::format::TraceEvent;
 use move_vm_stack::Stack;
@@ -50,7 +49,7 @@ impl<T, S> SuiGeneralOracle<T, S> for OverflowOracle {
             TraceEvent::BeforeInstruction {
                 pc, instruction, ..
             } => {
-                if !matches!(instruction, Bytecode::Shl) {
+                if instruction.as_str() != "SHL" {
                     return Ok(vec![]);
                 }
                 let stack = match stack {

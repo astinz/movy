@@ -44,7 +44,7 @@ pub fn get_balance_changes_from_effect<P: ObjectStore>(
     input_objs: Vec<InputObjectKind>,
     mocked_coin: ObjectID,
 ) -> Option<Vec<BalanceChange>> {
-    let (_, gas_owner) = effects.gas_object();
+    let gas_owner = effects.gas_object().map(|(_, owner)| owner)?;
 
     // Only charge gas when tx fails, skip all object parsing
     if effects.status() != &ExecutionStatus::Success {
@@ -187,16 +187,20 @@ where
             .filter_map(|input| {
                 if let InputArgument::Object(_ty, obj) = input {
                     match obj {
-                        SuiObjectInputArgument::ImmOrOwnedObject(obj_ref) => {
-                            Some(InputObjectKind::ImmOrOwnedMoveObject(*obj_ref))
+                        SuiObjectInputArgument::ImmOrOwnedObject((id, version, digest)) => {
+                            Some(InputObjectKind::ImmOrOwnedMoveObject((
+                                (*id).into(),
+                                (*version).into(),
+                                ObjectDigest::new(*digest),
+                            )))
                         }
                         SuiObjectInputArgument::SharedObject {
                             id,
                             initial_shared_version,
                             mutable,
                         } => Some(InputObjectKind::SharedMoveObject {
-                            id: *id,
-                            initial_shared_version: *initial_shared_version,
+                            id: (*id).into(),
+                            initial_shared_version: (*initial_shared_version).into(),
                             mutability: if *mutable {
                                 SharedObjectMutability::Mutable
                             } else {

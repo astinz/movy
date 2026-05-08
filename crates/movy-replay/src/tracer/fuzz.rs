@@ -4,7 +4,6 @@ use color_eyre::eyre::{OptionExt, eyre};
 use libafl::{executors::ExitKind, observers::StdMapObserver};
 use libafl_bolts::tuples::{Handle, MatchName, MatchNameRef};
 use log::{trace, warn};
-use move_binary_format::file_format::Bytecode;
 use move_trace_format::{
     format::{Effect, TraceEvent},
     interface::Tracer,
@@ -240,22 +239,14 @@ where
                 //     }
                 // }
                 self.coverage.may_do_coverage(*pc);
-                match instruction {
-                    Bytecode::BrFalse(_)
-                    | Bytecode::BrTrue(_)
-                    | Bytecode::Branch(_)
-                    | Bytecode::VariantSwitch(_) => {
+                match instruction.as_str() {
+                    "BR_FALSE" | "BR_TRUE" | "BRANCH" | "VARIANT_SWITCH" => {
                         self.coverage.will_branch();
                     }
-                    Bytecode::Lt
-                    | Bytecode::Le
-                    | Bytecode::Ge
-                    | Bytecode::Gt
-                    | Bytecode::Neq
-                    | Bytecode::Eq => match Self::bin_ops(stack) {
+                    "LT" | "LE" | "GE" | "GT" | "NEQ" | "EQ" => match Self::bin_ops(stack) {
                         Ok((lhs, rhs)) => {
                             if let Some(current_function) = self.current_functions.first() {
-                                let op = CmpOp::try_from(instruction)?;
+                                let op = CmpOp::try_from(instruction.as_str())?;
                                 self.outcome
                                     .logs
                                     .entry(current_function.clone())
@@ -271,14 +262,12 @@ where
                             }
                         }
                         Err(e) => {
-                            if !matches!(instruction, Bytecode::Eq)
-                                && !matches!(instruction, Bytecode::Neq)
-                            {
+                            if !matches!(instruction.as_str(), "EQ" | "NEQ") {
                                 warn!("Can not track cmplog due to {}", e);
                             }
                         }
                     },
-                    Bytecode::Shl => match Self::bin_ops(stack) {
+                    "SHL" => match Self::bin_ops(stack) {
                         Ok((lhs, rhs)) => {
                             if let Some(current_function) = self.current_functions.first() {
                                 self.outcome
@@ -295,18 +284,12 @@ where
                             }
                         }
                         Err(e) => {
-                            if !matches!(instruction, Bytecode::Eq)
-                                && !matches!(instruction, Bytecode::Neq)
-                            {
+                            if !matches!(instruction.as_str(), "EQ" | "NEQ") {
                                 warn!("Can not track cmplog due to {}", e);
                             }
                         }
                     },
-                    Bytecode::CastU8
-                    | Bytecode::CastU16
-                    | Bytecode::CastU32
-                    | Bytecode::CastU64
-                    | Bytecode::CastU128 => {
+                    "CAST_U8" | "CAST_U16" | "CAST_U32" | "CAST_U64" | "CAST_U128" => {
                         if let Some(Some(lhs)) = stack.map(|s| s.value.last()) {
                             let lhs: Magic = lhs.copy_value()?.value_as::<IntegerValue>()?.into();
                             if let Some(current_function) = self.current_functions.first() {
@@ -350,9 +333,10 @@ where
         event: &TraceEvent,
         _writer: &mut move_trace_format::interface::Writer<'_>,
         stack: Option<&move_vm_stack::Stack>,
-    ) {
+    ) -> bool {
         if let Err(e) = self.notify_event(event, stack) {
             warn!("Error during tracing: {}", e);
         }
+        true
     }
 }

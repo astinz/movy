@@ -12,6 +12,7 @@ use move_core_types::{
     annotated_value::{MoveDatatypeLayout, MoveStruct, MoveValue},
     language_storage::StructTag,
 };
+#[cfg(feature = "analysis")]
 use movy_analysis::type_graph::MoveTypeGraph;
 use movy_sui::database::cache::ObjectSuiStoreCommit;
 use movy_types::{
@@ -29,6 +30,76 @@ use sui_types::{
     event::Event,
     storage::{BackingPackageStore, BackingStore, ObjectStore},
 };
+
+#[cfg(not(feature = "analysis"))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MoveTypeGraph {
+    functions: Vec<(MoveModuleId, MoveFunctionAbi)>,
+}
+
+#[cfg(not(feature = "analysis"))]
+impl MoveTypeGraph {
+    pub fn add_package(&mut self, abi: &MovePackageAbi) {
+        for module in &abi.modules {
+            for function in &module.functions {
+                let item = (module.module_id.clone(), function.clone());
+                if !self.functions.contains(&item) {
+                    self.functions.push(item);
+                }
+            }
+        }
+    }
+
+    pub fn find_consumers(
+        &self,
+        ty: &MoveAbiSignatureToken,
+        public_only: bool,
+    ) -> Vec<(&MoveModuleId, &MoveFunctionAbi)> {
+        self.functions
+            .iter()
+            .filter_map(|(module, function)| {
+                if public_only
+                    && function.visibility != movy_types::abi::MoveFunctionVisibility::Public
+                {
+                    return None;
+                }
+                function
+                    .parameters
+                    .iter()
+                    .any(|param| {
+                        let param = param.dereference().map(|p| p.as_ref()).unwrap_or(param);
+                        param.partial_extract_ty_args(ty).is_some()
+                    })
+                    .then_some((module, function))
+            })
+            .collect()
+    }
+
+    pub fn find_producers(
+        &self,
+        ty: &MoveAbiSignatureToken,
+        public_only: bool,
+    ) -> Vec<(MoveModuleId, MoveFunctionAbi)> {
+        self.functions
+            .iter()
+            .filter_map(|(module, function)| {
+                if public_only
+                    && function.visibility != movy_types::abi::MoveFunctionVisibility::Public
+                {
+                    return None;
+                }
+                function
+                    .return_paramters
+                    .iter()
+                    .any(|ret| {
+                        let ret = ret.dereference().map(|p| p.as_ref()).unwrap_or(ret);
+                        ret.partial_extract_ty_args(ty).is_some()
+                    })
+                    .then_some((module.clone(), function.clone()))
+            })
+            .collect()
+    }
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Metadata {

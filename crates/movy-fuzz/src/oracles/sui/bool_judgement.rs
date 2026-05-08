@@ -1,4 +1,3 @@
-use move_binary_format::file_format::Bytecode;
 use move_trace_format::format::TraceEvent;
 use move_vm_stack::Stack;
 use serde_json::json;
@@ -47,13 +46,8 @@ impl<T, S> SuiGeneralOracle<T, S> for BoolJudgementOracle {
             } => {
                 let stack_syms = &symbol_stack.stack;
                 let current = current_function.and_then(to_module_func);
-                let loss = match instruction {
-                    Bytecode::Eq
-                    | Bytecode::Neq
-                    | Bytecode::Lt
-                    | Bytecode::Le
-                    | Bytecode::Gt
-                    | Bytecode::Ge => {
+                let loss = match instruction.as_str() {
+                    "EQ" | "NEQ" | "LT" | "LE" | "GT" | "GE" => {
                         let stack_len = stack_syms.len();
                         if stack_len < 2 {
                             return Ok(vec![]);

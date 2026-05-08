@@ -8,38 +8,61 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
-movy-types = {workspace = true}
-movy-analysis = {workspace = true}
-movy-replay = {workspace = true}
-movy-sui = {workspace = true}
-movy-static-analysis = {workspace = true}
+movy-fuzz-core = {workspace = true, default-features = false}
+movy-types = {workspace = true, default-features = false, features = ["fuzz"]}
+movy-replay = {workspace = true, optional = true}
+movy-sui = {workspace = true, optional = true}
 
 libafl = { workspace = true }
 rand_libafl = {workspace = true}
 rand_core_libafl = {workspace = true}
-rand_sui = {workspace = true}
-rand_core_sui = {workspace = true}
+rand_sui = {workspace = true, optional = true}
+rand_core_sui = {workspace = true, optional = true}
 libafl_bolts = { workspace = true }
 color-eyre = {workspace = true}
 serde_json_any_key = {workspace = true}
 alloy-primitives = {workspace = true, features = ["serde"]}
-tokio = {workspace = true, features = ["full"]}
-fastcrypto = {workspace = true}
+tokio = {workspace = true, features = ["full"], optional = true}
+fastcrypto = {workspace = true, optional = true}
 serde_json.workspace = true
 serde.workspace = true
 log.workspace = true
-z3 = {workspace = true}
-z3-sys = {workspace = true}
+z3 = {workspace = true, optional = true}
+z3-sys = {workspace = true, optional = true}
 const-hex = {workspace = true}
 itertools = {workspace = true}
 anyhow = {workspace = true}
-move-binary-format = {workspace = true}
-move-core-types = {workspace = true}
-move-model = {workspace = true}
-move-stackless-bytecode = {workspace = true}
-move-trace-format = {workspace = true}
-move-vm-stack = {workspace = true}
-move-vm-types = {workspace = true}
-sui-types = {workspace = true}
-sui-json-rpc-types = {workspace = true}
+move-binary-format = {workspace = true, optional = true}
+move-core-types = {workspace = true, optional = true}
+move-model = {workspace = true, optional = true}
+move-stackless-bytecode = {workspace = true, optional = true}
+move-trace-format = {workspace = true, optional = true}
+move-vm-stack = {workspace = true, optional = true}
+move-vm-types = {workspace = true, optional = true}
+sui-types = {workspace = true, optional = true}
+sui-json-rpc-types = {workspace = true, optional = true}
 pprof = {workspace = true, optional = true, features = ["flamegraph"] }
+
+[features]
+default = []
+input_display = []
+sui = [
+    "dep:fastcrypto",
+    "dep:move-binary-format",
+    "dep:move-core-types",
+    "dep:move-model",
+    "dep:move-stackless-bytecode",
+    "dep:move-trace-format",
+    "dep:move-vm-stack",
+    "dep:move-vm-types",
+    "movy-types/sui",
+    "dep:movy-replay",
+    "dep:movy-sui",
+    "dep:rand_core_sui",
+    "dep:rand_sui",
+    "dep:sui-json-rpc-types",
+    "dep:sui-types",
+    "dep:tokio",
+    "dep:z3",
+    "dep:z3-sys",
+]

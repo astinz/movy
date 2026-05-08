@@ -1,6 +1,8 @@
 use alloy_primitives::B256;
+#[cfg(feature = "sui")]
 use color_eyre::eyre::eyre;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "sui")]
 use sui_types::{
     TypeTag,
     base_types::ObjectRef,
@@ -8,10 +10,9 @@ use sui_types::{
     object::{Object, Owner},
 };
 
-use crate::{
-    error::MovyError,
-    input::{MoveAddress, MoveTypeTag},
-};
+#[cfg(feature = "sui")]
+use crate::error::MovyError;
+use crate::input::{MoveAddress, MoveTypeTag};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum MoveOwner {
@@ -27,6 +28,7 @@ pub enum MoveOwner {
     },
 }
 
+#[cfg(feature = "sui")]
 impl From<MoveOwner> for Owner {
     fn from(value: MoveOwner) -> Self {
         match value {
@@ -49,6 +51,7 @@ impl From<MoveOwner> for Owner {
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<Owner> for MoveOwner {
     fn from(value: Owner) -> Self {
         match value {
@@ -74,36 +77,70 @@ impl From<Owner> for MoveOwner {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Copy)]
 pub struct MoveDigest(B256);
 
+impl MoveDigest {
+    pub fn new(bytes: [u8; 32]) -> Self {
+        Self(B256::new(bytes))
+    }
+
+    pub fn into_inner(self) -> [u8; 32] {
+        self.0.0
+    }
+}
+
+impl Default for MoveDigest {
+    fn default() -> Self {
+        Self(B256::ZERO)
+    }
+}
+
+impl From<[u8; 32]> for MoveDigest {
+    fn from(value: [u8; 32]) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<MoveDigest> for [u8; 32] {
+    fn from(value: MoveDigest) -> Self {
+        value.into_inner()
+    }
+}
+
+#[cfg(feature = "sui")]
 impl From<TransactionDigest> for MoveDigest {
     fn from(value: TransactionDigest) -> Self {
         Self(B256::new(value.into_inner()))
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<MoveDigest> for TransactionDigest {
     fn from(value: MoveDigest) -> Self {
         Self::new(value.0.0)
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<ObjectDigest> for MoveDigest {
     fn from(value: ObjectDigest) -> Self {
         Self(B256::new(value.into_inner()))
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<MoveDigest> for ObjectDigest {
     fn from(value: MoveDigest) -> Self {
         Self::new(value.0.0)
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<Digest> for MoveDigest {
     fn from(value: Digest) -> Self {
         Self(B256::new(value.into_inner()))
     }
 }
 
+#[cfg(feature = "sui")]
 impl From<MoveDigest> for Digest {
     fn from(value: MoveDigest) -> Self {
         Self::new(value.0.0)
@@ -121,11 +158,13 @@ pub struct MoveObjectInfo {
 }
 
 impl MoveObjectInfo {
+    #[cfg(feature = "sui")]
     pub fn sui_reference(&self) -> ObjectRef {
         (self.id.into(), self.version.into(), self.digest.into())
     }
 }
 
+#[cfg(feature = "sui")]
 impl TryFrom<&Object> for MoveObjectInfo {
     type Error = MovyError;
 

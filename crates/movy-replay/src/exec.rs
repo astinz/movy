@@ -14,7 +14,7 @@ use sui_types::{
     effects::{TransactionEffects, TransactionEffectsAPI},
     gas::SuiGasStatus,
     inner_temporary_store::InnerTemporaryStore,
-    metrics::LimitsMetrics,
+    metrics::ExecutionMetrics,
     object::Owner,
     storage::{BackingStore, ObjectStore, WriteKind},
     supported_protocol_versions::{Chain, ProtocolConfig},
@@ -30,11 +30,63 @@ use crate::{
     tracer::NopTracer,
 };
 
+struct BorrowedTracer {
+    ptr: *mut (),
+    notify_fn: unsafe fn(
+        *mut (),
+        &move_trace_format::format::TraceEvent,
+        &mut move_trace_format::interface::Writer<'_>,
+        Option<&move_vm_stack::Stack>,
+    ) -> bool,
+    wants_effects_fn: unsafe fn(*mut ()) -> bool,
+}
+
+impl BorrowedTracer {
+    fn new<R: Tracer>(tracer: &mut R) -> Self {
+        Self {
+            ptr: tracer as *mut R as *mut (),
+            notify_fn: Self::notify_impl::<R>,
+            wants_effects_fn: Self::wants_effects_impl::<R>,
+        }
+    }
+
+    unsafe fn notify_impl<R: Tracer>(
+        ptr: *mut (),
+        event: &move_trace_format::format::TraceEvent,
+        writer: &mut move_trace_format::interface::Writer<'_>,
+        stack: Option<&move_vm_stack::Stack>,
+    ) -> bool {
+        unsafe { (&mut *(ptr as *mut R)).notify(event, writer, stack) }
+    }
+
+    unsafe fn wants_effects_impl<R: Tracer>(ptr: *mut ()) -> bool {
+        unsafe { (&*(ptr as *mut R)).wants_effects() }
+    }
+}
+
+impl Tracer for BorrowedTracer {
+    fn notify(
+        &mut self,
+        event: &move_trace_format::format::TraceEvent,
+        writer: &mut move_trace_format::interface::Writer<'_>,
+        stack: Option<&move_vm_stack::Stack>,
+    ) -> bool {
+        // SAFETY: run_tx_trace drops the MoveTraceBuilder before returning the
+        // owned tracer, so Sui never observes this pointer after tracer moves.
+        unsafe { (self.notify_fn)(self.ptr, event, writer, stack) }
+    }
+
+    fn wants_effects(&self) -> bool {
+        // SAFETY: see notify; this wrapper is only alive while run_tx_trace owns R.
+        unsafe { (self.wants_effects_fn)(self.ptr) }
+    }
+}
+
 #[derive(Clone)]
 pub struct SuiExecutor<T> {
     pub db: T,
     pub protocol_config: ProtocolConfig,
-    pub metrics: Arc<LimitsMetrics>,
+    pub metrics: Arc<ExecutionMetrics>,
     pub registry: prometheus::Registry,
     pub executor: Arc<dyn sui_execution::Executor + Send + Sync>,
 }
@@ -65,7 +117,7 @@ where
         let protocol_config: ProtocolConfig =
             ProtocolConfig::get_for_version(ProtocolVersion::max(), Chain::Mainnet);
         let registry = prometheus::Registry::new();
-        let metrics = Arc::new(LimitsMetrics::new(&registry));
+        let metrics = Arc::new(ExecutionMetrics::new(&registry));
         let executor = sui_execution::executor(&protocol_config, false)?;
         Ok(Self {
             db,
@@ -167,8 +219,8 @@ where
             )?
         };
 
-        let mut move_tracer = if let Some(tracer) = &mut tracer {
-            let tracer = Box::new(tracer) as Box<dyn Tracer>;
+        let mut move_tracer = if let Some(tracer) = tracer.as_mut() {
+            let tracer = Box::new(BorrowedTracer::new(tracer)) as Box<dyn Tracer>;
             Some(MoveTraceBuilder::new_with_tracer(tracer))
         } else {
             None
@@ -187,6 +239,7 @@ where
                 tx_data.gas_data().clone(),
                 gas,
                 tx_data.kind().clone(),
+                None,
                 tx_data.sender(),
                 tx_data.digest(),
                 &mut move_tracer,

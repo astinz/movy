@@ -1,11 +1,13 @@
-use itertools::Itertools;
 use libafl::{
     HasMetadata,
     corpus::{Corpus, CorpusId, Testcase},
     feedbacks::{Feedback, StateInitializer},
 };
 use libafl_bolts::{Named, rands::StdRand};
-use movy_types::input::{MoveAddress, MoveStructTag, MoveTypeTag};
+use movy_types::{
+    input::{MoveAddress, MoveStructTag, MoveTypeTag},
+    object::MoveDigest,
+};
 use rand_libafl::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,10 +16,7 @@ use std::{
     marker::PhantomData,
 };
 
-use crate::{
-    input::MoveInput,
-    state::{ExtraNonSerdeFuzzState, HasExtraState, HasFuzzEnv},
-};
+use crate::{input::MoveInput, outcome::GlobalOutcome, state::HasExtraState};
 
 pub fn random_seed() -> u64 {
     rand_libafl::rng().next_u64()
@@ -34,7 +33,9 @@ impl SuperRand {
 
 // Not really but... we are fuzzing anyway
 impl rand_core_libafl::CryptoRng for SuperRand {}
+#[cfg(feature = "sui")]
 impl rand_core_sui::CryptoRng for SuperRand {}
+#[cfg(feature = "sui")]
 impl fastcrypto::traits::AllowedRng for SuperRand {}
 
 impl rand_core_libafl::RngCore for SuperRand {
@@ -51,6 +52,7 @@ impl rand_core_libafl::RngCore for SuperRand {
     }
 }
 
+#[cfg(feature = "sui")]
 impl rand_core_sui::RngCore for SuperRand {
     fn fill_bytes(&mut self, dst: &mut [u8]) {
         rand_core_libafl::RngCore::fill_bytes(&mut self.0, dst)
@@ -337,7 +339,30 @@ pub fn hash_to_u64(s: &str) -> u64 {
     hasher.finish()
 }
 
+pub fn digest_into_inner(digest: MoveDigest) -> [u8; 32] {
+    #[cfg(feature = "sui")]
+    {
+        let digest: sui_types::digests::TransactionDigest = digest.into();
+        digest.into_inner()
+    }
+
+    #[cfg(not(feature = "sui"))]
+    {
+        digest.into_inner()
+    }
+}
+
 pub struct AppendOutcomeFeedback {}
+
+pub trait HasGlobalOutcome {
+    fn take_global_outcome(&mut self) -> Option<GlobalOutcome>;
+}
+
+impl<T> HasGlobalOutcome for crate::state::ExtraNonSerdeFuzzState<T> {
+    fn take_global_outcome(&mut self) -> Option<GlobalOutcome> {
+        self.global_outcome.take()
+    }
+}
 
 impl Named for AppendOutcomeFeedback {
     fn name(&self) -> &std::borrow::Cow<'static, str> {
@@ -354,9 +379,8 @@ impl<S> StateInitializer<S> for AppendOutcomeFeedback {
 impl<EM, I, OT, S> Feedback<EM, I, OT, S> for AppendOutcomeFeedback
 where
     I: MoveInput,
-    S: HasMetadata
-        + HasFuzzEnv
-        + HasExtraState<ExtraState = ExtraNonSerdeFuzzState<<S as HasFuzzEnv>::Env>>,
+    S: HasMetadata + HasExtraState,
+    S::ExtraState: HasGlobalOutcome,
 {
     fn is_interesting(
         &mut self,
@@ -376,7 +400,7 @@ where
         _observers: &OT,
         _testcase: &mut Testcase<I>,
     ) -> Result<(), libafl::Error> {
-        let outcome = std::mem::take(&mut state.extra_state_mut().global_outcome);
+        let outcome = state.extra_state_mut().take_global_outcome();
 
         if let Some(outcome) = outcome {
             let input = _testcase.input_mut().as_mut().unwrap();

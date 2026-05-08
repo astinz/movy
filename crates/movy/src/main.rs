@@ -1,15 +1,52 @@
 use clap::{Parser, Subcommand};
 
-use crate::{analysis::AnlaysisArgs, sui::SuiArgs};
+#[cfg(feature = "analysis")]
+use crate::analysis::AnlaysisArgs;
+#[cfg(feature = "aptos")]
+use crate::aptos::AptosArgs;
+#[cfg(any(
+    feature = "sui-trace",
+    feature = "sui-fuzz",
+    feature = "sui-replay",
+    feature = "sui-static-analysis"
+))]
+use crate::sui::SuiArgs;
 
+#[cfg(feature = "analysis")]
 mod analysis;
+#[cfg(feature = "aptos")]
 mod aptos;
+#[cfg(any(
+    feature = "sui-trace",
+    feature = "sui-fuzz",
+    feature = "sui-replay",
+    feature = "sui-static-analysis"
+))]
 mod sui;
 
 #[derive(Subcommand)]
 pub enum MovySubcommand {
+    #[cfg(any(
+        feature = "sui-trace",
+        feature = "sui-fuzz",
+        feature = "sui-replay",
+        feature = "sui-static-analysis"
+    ))]
     Sui(SuiArgs),
-    Analysis(AnlaysisArgs), // Aptos(AptosArgs)
+    #[cfg(feature = "analysis")]
+    Analysis(AnlaysisArgs),
+    #[cfg(feature = "aptos")]
+    Aptos(AptosArgs),
+    #[cfg(not(any(
+        feature = "sui-trace",
+        feature = "sui-fuzz",
+        feature = "sui-replay",
+        feature = "sui-static-analysis",
+        feature = "analysis",
+        feature = "aptos"
+    )))]
+    #[command(hide = true)]
+    NoFeatures,
 }
 
 #[derive(Parser)]
@@ -21,8 +58,28 @@ pub struct MovyCommand {
 async fn main_entry() {
     let args = MovyCommand::parse();
     match args.cmd {
+        #[cfg(any(
+            feature = "sui-trace",
+            feature = "sui-fuzz",
+            feature = "sui-replay",
+            feature = "sui-static-analysis"
+        ))]
         MovySubcommand::Sui(args) => args.run().await.expect("sui command failed"),
+        #[cfg(feature = "analysis")]
         MovySubcommand::Analysis(args) => args.run().await.expect("analysis failed"),
+        #[cfg(feature = "aptos")]
+        MovySubcommand::Aptos(args) => args.run().await.expect("aptos command failed"),
+        #[cfg(not(any(
+            feature = "sui-trace",
+            feature = "sui-fuzz",
+            feature = "sui-replay",
+            feature = "sui-static-analysis",
+            feature = "analysis",
+            feature = "aptos"
+        )))]
+        MovySubcommand::NoFeatures => {
+            eprintln!("No movy command features are enabled for this build")
+        }
     }
 }
 

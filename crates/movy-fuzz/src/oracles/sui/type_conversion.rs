@@ -1,4 +1,3 @@
-use move_binary_format::file_format::Bytecode;
 use move_trace_format::format::TraceEvent;
 use move_vm_stack::Stack;
 use movy_types::input::MoveSequence;
@@ -44,13 +43,13 @@ impl<T, S> SuiGeneralOracle<T, S> for TypeConversionOracle {
                 };
                 let vals: Vec<_> = vals_iter.collect();
                 let val = vals.first().unwrap();
-                let unnecessary = match instruction {
-                    Bytecode::CastU8 => value_bitwidth(val) == 8,
-                    Bytecode::CastU16 => value_bitwidth(val) == 16,
-                    Bytecode::CastU32 => value_bitwidth(val) == 32,
-                    Bytecode::CastU64 => value_bitwidth(val) == 64,
-                    Bytecode::CastU128 => value_bitwidth(val) == 128,
-                    Bytecode::CastU256 => value_bitwidth(val) == 256,
+                let unnecessary = match instruction.as_str() {
+                    "CAST_U8" => value_bitwidth(val) == 8,
+                    "CAST_U16" => value_bitwidth(val) == 16,
+                    "CAST_U32" => value_bitwidth(val) == 32,
+                    "CAST_U64" => value_bitwidth(val) == 64,
+                    "CAST_U128" => value_bitwidth(val) == 128,
+                    "CAST_U256" => value_bitwidth(val) == 256,
                     _ => false,
                 };
                 if unnecessary {

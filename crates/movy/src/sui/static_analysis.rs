@@ -2,7 +2,6 @@ use std::{path::PathBuf, str::FromStr};
 
 use clap::Args;
 use color_eyre::eyre::eyre;
-use movy_fuzz::utils::{SuperRand, random_seed};
 use movy_replay::{db::ObjectStoreMintObject, env::SuiTestingEnv};
 use movy_static_analysis::sui as static_sui;
 use movy_sui::{
@@ -44,7 +43,6 @@ pub struct SuiStaticAnalysisArgs {
 
 impl SuiStaticAnalysisArgs {
     pub async fn run(self) -> Result<(), MovyError> {
-        let mut rand = SuperRand::new(random_seed());
         let graphql = GraphQlClient::new_mystens();
         let _rpc = self.rpc.grpc().await?;
 
@@ -57,7 +55,7 @@ impl SuiStaticAnalysisArgs {
         let epoch_ms = ckpt_summary.timestamp_ms;
 
         let env = CachedStore::new(GraphQlDatabase::new_client(graphql.clone(), checkpoint));
-        let gas_id = ObjectID::random_from_rng(&mut rand);
+        let gas_id = ObjectID::random();
         env.mint_coin_id(
             MoveTypeTag::from_str("0x2::sui::SUI").unwrap(),
             MoveOwner::AddressOwner(self.deployer),

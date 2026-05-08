@@ -9,12 +9,6 @@ use itertools::Itertools;
 use libafl::{HasMetadata, state::HasRand};
 use libafl_bolts::{impl_serdeany, rands::Rand};
 use log::debug;
-use movy_replay::{
-    db::{ObjectStoreCachedStore, ObjectStoreInfo},
-    env::SuiTestingEnv,
-    meta::Metadata,
-};
-use movy_sui::database::cache::ObjectSuiStoreCommit;
 use movy_types::abi::MoveAbiSignatureToken;
 use movy_types::{
     abi::{
@@ -22,13 +16,410 @@ use movy_types::{
         MovePackageAbi, MoveStructAbi,
     },
     error::MovyError,
-    input::{FunctionIdent, MoveAddress, MoveTypeTag},
+    input::{FunctionIdent, MoveAddress, MoveStructTag, MoveTypeTag},
 };
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
-use sui_types::storage::{BackingPackageStore, BackingStore, ObjectStore};
 
 use crate::{r#const::INIT_FUNCTION_SCORE, utils::SuperRand};
+
+#[cfg(feature = "sui")]
+use movy_replay::{
+    db::{ObjectStoreCachedStore, ObjectStoreInfo},
+    env::SuiTestingEnv,
+};
+#[cfg(feature = "sui")]
+use movy_sui::database::cache::ObjectSuiStoreCommit;
+#[cfg(feature = "sui")]
+use sui_types::storage::{BackingPackageStore, BackingStore, ObjectStore};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MoveFuzzTypeGraph {
+    functions: Vec<(MoveModuleId, MoveFunctionAbi)>,
+}
+
+impl MoveFuzzTypeGraph {
+    pub fn add_package(&mut self, abi: &MovePackageAbi) {
+        for module in &abi.modules {
+            for function in &module.functions {
+                let item = (module.module_id.clone(), function.clone());
+                if !self.functions.contains(&item) {
+                    self.functions.push(item);
+                }
+            }
+        }
+    }
+
+    pub fn find_consumers(
+        &self,
+        ty: &MoveAbiSignatureToken,
+        public_only: bool,
+    ) -> Vec<(&MoveModuleId, &MoveFunctionAbi)> {
+        self.functions
+            .iter()
+            .filter_map(|(module, function)| {
+                if public_only && function.visibility != MoveFunctionVisibility::Public {
+                    return None;
+                }
+                function
+                    .parameters
+                    .iter()
+                    .any(|param| {
+                        let param = param.dereference().map(|p| p.as_ref()).unwrap_or(param);
+                        param.partial_extract_ty_args(ty).is_some()
+                    })
+                    .then_some((module, function))
+            })
+            .collect()
+    }
+
+    pub fn find_producers(
+        &self,
+        ty: &MoveAbiSignatureToken,
+        public_only: bool,
+    ) -> Vec<(MoveModuleId, MoveFunctionAbi)> {
+        self.functions
+            .iter()
+            .filter_map(|(module, function)| {
+                if public_only && function.visibility != MoveFunctionVisibility::Public {
+                    return None;
+                }
+                function
+                    .return_paramters
+                    .iter()
+                    .any(|ret| {
+                        let ret = ret.dereference().map(|p| p.as_ref()).unwrap_or(ret);
+                        ret.partial_extract_ty_args(ty).is_some()
+                    })
+                    .then_some((module.clone(), function.clone()))
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Metadata {
+    pub type_graph: MoveFuzzTypeGraph,
+    pub abis: BTreeMap<MoveAddress, MovePackageAbi>,
+    pub testing_abis: BTreeMap<MoveAddress, MovePackageAbi>,
+    #[serde(with = "any_key_map")]
+    pub types_pool: BTreeMap<MoveTypeTag, BTreeSet<MoveAddress>>,
+    pub module_address_to_package: BTreeMap<MoveAddress, MoveAddress>,
+    pub ability_to_type_tag: BTreeMap<MoveAbility, Vec<MoveTypeTag>>,
+    pub function_name_to_idents: BTreeMap<String, Vec<FunctionIdent>>,
+    #[serde(with = "any_key_map")]
+    pub structs_mapping: BTreeMap<(MoveModuleId, String), MoveStructAbi>,
+}
+
+impl Metadata {
+    pub fn from_parts(
+        local_abis: BTreeMap<MoveAddress, MovePackageAbi>,
+        testing_abis: BTreeMap<MoveAddress, MovePackageAbi>,
+        types_pool: BTreeMap<MoveTypeTag, BTreeSet<MoveAddress>>,
+        include_types: Option<&[MoveTypeTag]>,
+        exclude_types: Option<&[MoveTypeTag]>,
+    ) -> Self {
+        let mut abis = testing_abis.clone();
+        for (addr, abi) in local_abis {
+            abis.insert(addr, abi);
+        }
+
+        let mut module_address_to_package = BTreeMap::new();
+        for (pkg_id, abi) in &abis {
+            for module in &abi.modules {
+                module_address_to_package.insert(module.module_id.module_address, *pkg_id);
+            }
+        }
+
+        let mut ability_to_type_tag: BTreeMap<MoveAbility, BTreeSet<MoveTypeTag>> = BTreeMap::new();
+        ability_to_type_tag.insert(
+            MoveAbility::PRIMITIVES,
+            BTreeSet::from([
+                MoveTypeTag::Bool,
+                MoveTypeTag::Address,
+                MoveTypeTag::U8,
+                MoveTypeTag::U16,
+                MoveTypeTag::U32,
+                MoveTypeTag::U64,
+                MoveTypeTag::U128,
+                MoveTypeTag::U256,
+                MoveTypeTag::Vector(Box::new(MoveTypeTag::U8)),
+            ]),
+        );
+        ability_to_type_tag.insert(MoveAbility::DROP, BTreeSet::from([MoveTypeTag::Signer]));
+
+        for pkg in abis.values() {
+            for module in &pkg.modules {
+                for s in &module.structs {
+                    if !s.type_parameters.is_empty() {
+                        continue;
+                    }
+                    let type_tag = MoveTypeTag::Struct(MoveStructTag {
+                        address: s.module_id.module_address,
+                        module: s.module_id.module_name.clone(),
+                        name: s.struct_name.clone(),
+                        tys: vec![],
+                    });
+                    ability_to_type_tag
+                        .entry(s.abilities)
+                        .or_default()
+                        .insert(type_tag);
+                }
+            }
+        }
+
+        let mut function_name_to_idents: BTreeMap<String, Vec<FunctionIdent>> = BTreeMap::new();
+        for pkg in testing_abis.values() {
+            for module in &pkg.modules {
+                for f in &module.functions {
+                    function_name_to_idents
+                        .entry(f.name.clone())
+                        .or_default()
+                        .push(FunctionIdent::new(
+                            &module.module_id.module_address,
+                            &module.module_id.module_name,
+                            &f.name,
+                        ));
+                }
+            }
+        }
+
+        let mut type_graph = MoveFuzzTypeGraph::default();
+        for package in abis.values() {
+            type_graph.add_package(package);
+        }
+
+        let mut structs_mapping = BTreeMap::new();
+        for pkg in testing_abis.values() {
+            for module in &pkg.modules {
+                for st in &module.structs {
+                    structs_mapping.insert(
+                        (module.module_id.clone(), st.struct_name.clone()),
+                        st.clone(),
+                    );
+                }
+            }
+        }
+
+        Self {
+            type_graph,
+            abis,
+            testing_abis,
+            types_pool: filter_types_pool(types_pool, include_types, exclude_types),
+            module_address_to_package,
+            ability_to_type_tag: ability_to_type_tag
+                .into_iter()
+                .map(|(ability, tags)| (ability, tags.into_iter().collect()))
+                .collect(),
+            function_name_to_idents,
+            structs_mapping,
+        }
+    }
+
+    pub fn get_package_metadata(&self, package_id: &MoveAddress) -> Option<&MovePackageAbi> {
+        self.testing_abis.get(
+            self.module_address_to_package
+                .get(package_id)
+                .unwrap_or(package_id),
+        )
+    }
+
+    pub fn get_original_package_metadata(
+        &self,
+        package_id: &MoveAddress,
+    ) -> Option<&MovePackageAbi> {
+        self.abis.get(
+            self.module_address_to_package
+                .get(package_id)
+                .unwrap_or(package_id),
+        )
+    }
+
+    pub fn get_function(
+        &self,
+        package_id: &MoveAddress,
+        module: &str,
+        function: &str,
+    ) -> Option<&MoveFunctionAbi> {
+        self.get_package_metadata(package_id)
+            .and_then(|pkg| {
+                pkg.modules
+                    .iter()
+                    .find(|m| m.module_id.module_name == module)
+            })
+            .and_then(|module| module.functions.iter().find(|f| f.name == function))
+    }
+
+    pub fn get_struct(
+        &self,
+        package_id: MoveAddress,
+        module: &str,
+        struct_name: &str,
+    ) -> Option<&MoveStructAbi> {
+        self.get_package_metadata(&package_id)
+            .and_then(|pkg| {
+                pkg.modules
+                    .iter()
+                    .find(|m| m.module_id.module_name == module)
+            })
+            .and_then(|module| module.structs.iter().find(|s| s.struct_name == struct_name))
+    }
+
+    pub fn get_enum(
+        &self,
+        package_id: MoveAddress,
+        module: &str,
+        enum_name: &str,
+    ) -> Option<&MoveStructAbi> {
+        self.get_struct(package_id, module, enum_name)
+    }
+
+    pub fn get_abilities(
+        &self,
+        package_id: &MoveAddress,
+        module: &str,
+        struct_name: &str,
+    ) -> Option<MoveAbility> {
+        self.get_struct(*package_id, module, struct_name)
+            .map(|s| s.abilities)
+            .or_else(|| {
+                self.get_enum(*package_id, module, struct_name)
+                    .map(|e| e.abilities)
+            })
+    }
+
+    #[cfg(feature = "sui")]
+    pub fn decode_sui_event(
+        &self,
+        event: &sui_types::event::Event,
+    ) -> Result<
+        Option<(
+            move_core_types::language_storage::StructTag,
+            serde_json::Value,
+        )>,
+        MovyError,
+    > {
+        use move_core_types::annotated_value::MoveDatatypeLayout;
+        use sui_json_rpc_types::type_and_fields_from_move_event_data;
+
+        log::debug!("Decoding event {}", event.type_.to_canonical_string(true));
+        let id: MoveAddress = event.type_.address.into();
+        if let Some(st) =
+            self.get_struct(id, event.type_.module.as_str(), event.type_.name.as_str())
+        {
+            let mut typs = vec![];
+            for ty in event.type_.type_params.iter() {
+                let ty = MoveTypeTag::from(ty.clone());
+                let abi_ty = MoveAbiSignatureToken::from_type_tag_lossy(&ty);
+                if let Some(typ) = abi_ty.to_move_type_layout(&[], &self.structs_mapping) {
+                    typs.push(typ);
+                } else {
+                    log::debug!("decode_event: abi_ty {} is missing", &abi_ty);
+                }
+            }
+            if let Some(layout) = st.to_move_struct_layout(&typs, &self.structs_mapping) {
+                let e = sui_types::event::Event::move_event_to_move_value(
+                    &event.contents,
+                    MoveDatatypeLayout::Struct(Box::new(layout)),
+                )?;
+                return Ok(Some(type_and_fields_from_move_event_data(e)?));
+            }
+        } else {
+            log::debug!("the event struct is not known");
+        }
+
+        Ok(None)
+    }
+
+    #[cfg(feature = "sui")]
+    pub async fn from_env_filtered<T>(
+        env: &SuiTestingEnv<T>,
+        local_abis: BTreeMap<MoveAddress, MovePackageAbi>,
+        include_types: Option<&[MoveTypeTag]>,
+        exclude_types: Option<&[MoveTypeTag]>,
+    ) -> Result<Self, MovyError>
+    where
+        T: ObjectStoreCachedStore
+            + ObjectStoreInfo
+            + ObjectStore
+            + ObjectSuiStoreCommit
+            + BackingStore
+            + BackingPackageStore,
+    {
+        let testing_abis = env.export_abi().await?;
+        let mut types_pool: BTreeMap<MoveTypeTag, BTreeSet<MoveAddress>> = BTreeMap::new();
+        for obj_id in env.inner().list_objects().await? {
+            if let Ok(info) = env.inner().get_move_object_info(obj_id) {
+                types_pool
+                    .entry(info.ty.clone())
+                    .or_default()
+                    .insert(obj_id);
+            }
+        }
+        let mut meta = Self::from_parts(
+            local_abis,
+            testing_abis,
+            types_pool,
+            include_types,
+            exclude_types,
+        );
+
+        meta.module_address_to_package.clear();
+        for (pkg_id, abi) in &meta.abis {
+            for module in &abi.modules {
+                if let Some(old_pkg_id) = meta
+                    .module_address_to_package
+                    .get(&module.module_id.module_address)
+                {
+                    if env.inner().get_version(*old_pkg_id)? < env.inner().get_version(*pkg_id)? {
+                        meta.module_address_to_package
+                            .insert(module.module_id.module_address, *pkg_id);
+                    }
+                } else {
+                    meta.module_address_to_package
+                        .insert(module.module_id.module_address, *pkg_id);
+                }
+            }
+        }
+
+        Ok(meta)
+    }
+
+    #[cfg(feature = "sui")]
+    pub async fn from_env<T>(
+        env: &SuiTestingEnv<T>,
+        local_abis: BTreeMap<MoveAddress, MovePackageAbi>,
+    ) -> Result<Self, MovyError>
+    where
+        T: ObjectStoreCachedStore
+            + ObjectStoreInfo
+            + ObjectStore
+            + ObjectSuiStoreCommit
+            + BackingStore
+            + BackingPackageStore,
+    {
+        Self::from_env_filtered(env, local_abis, None, None).await
+    }
+}
+
+fn filter_types_pool(
+    mut types_pool: BTreeMap<MoveTypeTag, BTreeSet<MoveAddress>>,
+    include_types: Option<&[MoveTypeTag]>,
+    exclude_types: Option<&[MoveTypeTag]>,
+) -> BTreeMap<MoveTypeTag, BTreeSet<MoveAddress>> {
+    if let Some(include) = include_types {
+        let include_set: BTreeSet<_> = include.iter().cloned().collect();
+        types_pool.retain(|ty, _| include_set.contains(ty));
+    }
+
+    if let Some(exclude) = exclude_types {
+        let exclude_set: BTreeSet<_> = exclude.iter().cloned().collect();
+        types_pool.retain(|ty, _| !exclude_set.contains(ty));
+    }
+
+    types_pool.retain(|_, ids| !ids.is_empty());
+    types_pool
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectWithversion {
@@ -518,6 +909,7 @@ impl DerefMut for FuzzMetadata {
 impl_serdeany!(FuzzMetadata);
 
 impl FuzzMetadata {
+    #[cfg(feature = "sui")]
     pub async fn from_env<T>(
         env: &SuiTestingEnv<T>,
         rand: SuperRand,

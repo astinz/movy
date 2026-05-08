@@ -51,6 +51,7 @@ pub struct Event {
     pub contents: Vec<u8>,
 }
 
+#[cfg(feature = "sui")]
 impl From<sui_types::event::Event> for Event {
     fn from(value: sui_types::event::Event) -> Self {
         Self {

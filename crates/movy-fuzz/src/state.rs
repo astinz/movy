@@ -6,22 +6,32 @@ use libafl::{
         HasLastReportTime, HasRand, HasSolutions, Stoppable,
     },
 };
-use movy_replay::{
-    db::{ObjectStoreCachedStore, ObjectStoreInfo},
-    env::SuiTestingEnv,
-};
-use movy_sui::database::cache::ObjectSuiStoreCommit;
-use sui_types::storage::{BackingPackageStore, BackingStore, ObjectStore};
 
-use crate::executor::GlobalOutcome;
+use movy_types::{error::MovyError, input::MoveAddress, object::MoveObjectInfo};
+
+use crate::outcome::GlobalOutcome;
+
+pub trait FuzzObjectStore {
+    fn get_move_object_info(&self, object: MoveAddress) -> Result<MoveObjectInfo, MovyError>;
+}
+
+#[cfg(feature = "sui")]
+impl<T> FuzzObjectStore for movy_replay::env::SuiTestingEnv<T>
+where
+    T: movy_replay::db::ObjectStoreInfo,
+{
+    fn get_move_object_info(&self, object: MoveAddress) -> Result<MoveObjectInfo, MovyError> {
+        self.inner().get_move_object_info(object)
+    }
+}
 
 pub struct ExtraNonSerdeFuzzState<T> {
     pub global_outcome: Option<GlobalOutcome>,
-    pub fuzz_env: SuiTestingEnv<T>,
+    pub fuzz_env: T,
 }
 
 impl<T> ExtraNonSerdeFuzzState<T> {
-    pub fn from_env(fuzz_env: SuiTestingEnv<T>) -> Self {
+    pub fn from_env(fuzz_env: T) -> Self {
         Self {
             global_outcome: None,
             fuzz_env,
@@ -39,36 +49,24 @@ impl<T> std::fmt::Debug for ExtraNonSerdeFuzzState<T> {
 
 impl<T> Default for ExtraNonSerdeFuzzState<T>
 where
-    T: Default
-        + ObjectStoreCachedStore
-        + ObjectStoreInfo
-        + ObjectStore
-        + ObjectSuiStoreCommit
-        + BackingStore
-        + BackingPackageStore,
+    T: Default,
 {
     fn default() -> Self {
         Self {
             global_outcome: None,
-            fuzz_env: SuiTestingEnv::new(T::default()),
+            fuzz_env: T::default(),
         }
     }
 }
 
 impl<T> Clone for ExtraNonSerdeFuzzState<T>
 where
-    T: Clone
-        + ObjectStoreCachedStore
-        + ObjectStoreInfo
-        + ObjectStore
-        + ObjectSuiStoreCommit
-        + BackingStore
-        + BackingPackageStore,
+    T: Clone,
 {
     fn clone(&self) -> Self {
         Self {
             global_outcome: self.global_outcome.clone(),
-            fuzz_env: SuiTestingEnv::new(self.fuzz_env.inner().clone()),
+            fuzz_env: self.fuzz_env.clone(),
         }
     }
 }
@@ -80,24 +78,24 @@ pub trait HasExtraState {
 }
 
 pub trait HasFuzzEnv {
-    type Env: ObjectStoreInfo;
+    type Env: FuzzObjectStore;
 
-    fn fuzz_env(&self) -> &SuiTestingEnv<Self::Env>;
-    fn fuzz_env_mut(&mut self) -> &mut SuiTestingEnv<Self::Env>;
+    fn fuzz_env(&self) -> &Self::Env;
+    fn fuzz_env_mut(&mut self) -> &mut Self::Env;
 }
 
 impl<S, T> HasFuzzEnv for S
 where
     S: HasExtraState<ExtraState = ExtraNonSerdeFuzzState<T>>,
-    T: ObjectStoreInfo,
+    T: FuzzObjectStore,
 {
     type Env = T;
 
-    fn fuzz_env(&self) -> &SuiTestingEnv<Self::Env> {
+    fn fuzz_env(&self) -> &Self::Env {
         &self.extra_state().fuzz_env
     }
 
-    fn fuzz_env_mut(&mut self) -> &mut SuiTestingEnv<Self::Env> {
+    fn fuzz_env_mut(&mut self) -> &mut Self::Env {
         &mut self.extra_state_mut().fuzz_env
     }
 }
@@ -107,16 +105,8 @@ pub struct SuperState<S, T> {
     pub extra: ExtraNonSerdeFuzzState<T>,
 }
 
-impl<S, T> SuperState<S, T>
-where
-    T: ObjectStoreCachedStore
-        + ObjectStoreInfo
-        + ObjectStore
-        + ObjectSuiStoreCommit
-        + BackingStore
-        + BackingPackageStore,
-{
-    pub fn new(state: S, fuzz_env: SuiTestingEnv<T>) -> Self {
+impl<S, T> SuperState<S, T> {
+    pub fn new(state: S, fuzz_env: T) -> Self {
         Self {
             state,
             extra: ExtraNonSerdeFuzzState::from_env(fuzz_env),

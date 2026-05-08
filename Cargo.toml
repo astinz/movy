@@ -36,7 +36,7 @@ tokio-stream = "0.1"
 mdbx-derive = {version = "0.6.5"}
 dotenvy = "0.15.7"
 bincode = { version = "2.0", features = ["serde"] }
-prometheus = "0.13.3"
+prometheus = { version = "0.14", features = ["protobuf"] }
 auto_impl = "1.3.0"
 cynic = { version = "3.10.0", features = ["http-reqwest"] } # sui use these two
 scopeguard = "1.2.0"
@@ -61,34 +61,32 @@ tonic = "0.14"
 url = "2.5.7"
 
 # Sui dependencies
-move-binary-format = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-trace-format = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-package = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-compiler = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-disassembler = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-ir-types = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-core-types = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-vm-types = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-vm-stack = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-vm-runtime = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz", features = ["tracing", "testing"]}
-move-model = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-move-stackless-bytecode = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-move-build = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-json-rpc-types = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-types = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-package-management = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-sdk = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-config = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-storage = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-snapshot = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-core = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-sui-execution = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz", features = ["testing"]}
-shared-crypto = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-# sui-adapter-v2 = {git = "https://github.com/wtdcode/sui", branch = "v1.60.1-fuzz"}
-
-sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "fb62af78b30f5dc64eeaec0094ab95b5ce5b7ce2" }
-sui-sdk-types =  { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "fb62af78b30f5dc64eeaec0094ab95b5ce5b7ce2" }
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "09f86974195ec85d8aae386b1909d341d3ccfe52"} # sui use git dependency =/
+move-binary-format = {path = "../sui/external-crates/move/crates/move-binary-format"}
+move-trace-format = {path = "../sui/external-crates/move/crates/move-trace-format"}
+move-package = {path = "../sui/external-crates/move/crates/move-package"}
+move-compiler = {path = "../sui/external-crates/move/crates/move-compiler"}
+move-disassembler = {path = "../sui/external-crates/move/crates/move-disassembler"}
+move-ir-types = {path = "../sui/external-crates/move/crates/move-ir-types"}
+move-core-types = {path = "../sui/external-crates/move/crates/move-core-types"}
+move-vm-types = {path = "../sui/external-crates/move/crates/move-vm-types"}
+move-vm-stack = {path = "../sui/external-crates/move/crates/move-vm-stack"}
+move-vm-runtime = {path = "../sui/external-crates/move/crates/move-vm-runtime", features = ["tracing", "testing"]}
+move-model = {path = "../sui/external-crates/move/crates/move-model"}
+move-stackless-bytecode = {path = "../sui/external-crates/move/crates/move-stackless-bytecode"}
+sui-move-build = {path = "../sui/crates/sui-move-build"}
+sui-json-rpc-types = {path = "../sui/crates/sui-json-rpc-types"}
+sui-types = {path = "../sui/crates/sui-types"}
+sui-package-management = {path = "../sui/crates/sui-package-management"}
+sui-sdk = {path = "../sui/crates/sui-sdk"}
+sui-config = {path = "../sui/crates/sui-config"}
+sui-storage = {path = "../sui/crates/sui-storage"}
+sui-snapshot = {path = "../sui/crates/sui-snapshot"}
+sui-core = {path = "../sui/crates/sui-core"}
+sui-execution = {path = "../sui/sui-execution", features = ["testing"]}
+shared-crypto = {path = "../sui/crates/shared-crypto"}
+sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "e494a36a76a0aab8c5d66d5557995faee5c1fb09" }
+sui-sdk-types =  { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "e494a36a76a0aab8c5d66d5557995faee5c1fb09", features = ["hash", "serde"] }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "5f87e04bb21d295ef6b39375a06615d45cbb906c"} # keep in sync with local Sui workspace
 
 # move-stackless-bytecode = {path = "../sui/external-crates/move/crates/move-stackless-bytecode"}
 # move-model = {path = "../sui/external-crates/move/crates/move-model"}
@@ -121,6 +119,8 @@ fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "09f86974
 movy = { version = "0.0.1", default-features = false, path = "crates/movy"}
 movy-sui = {version = "0.0.1", default-features = false, path = "crates/movy-sui"}
 movy-fuzz = {version = "0.0.1", default-features = false, path = "crates/movy-fuzz"}
+movy-fuzz-core = {version = "0.0.1", default-features = false, path = "crates/movy-fuzz-core"}
+movy-aptos = {version = "0.0.1", default-features = false, path = "crates/movy-aptos"}
 movy-types = {version = "0.0.1", default-features = false, path = "crates/movy-types"}
 movy-replay = {version = "0.0.1", default-features = false, path = "crates/movy-replay"}
 movy-analysis = {version = "0.0.1", default-features = false, path = "crates/movy-analysis"}

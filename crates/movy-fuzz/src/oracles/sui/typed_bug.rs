@@ -69,18 +69,19 @@ where
         trace!("TypedBugOracle done_execution called");
         if self.use_abort {
             match _effects.status() {
-                ExecutionStatus::Failure {
-                    error: ExecutionFailureStatus::MoveAbort(_, code),
-                    ..
-                } if *code == TYPED_BUG_ABORT_CODE => {
-                    debug!("Typed bug abort detected: code {}", code);
-                    return Ok(vec![OracleFinding {
-                        oracle: "TypedBugOracle".to_string(),
-                        severity: movy_types::oracle::Severity::Critical,
-                        extra: json!({
-                            "abort_code": code,
-                        }),
-                    }]);
+                ExecutionStatus::Failure(failure) => {
+                    if let ExecutionFailureStatus::MoveAbort(_, code) = &failure.error
+                        && *code == TYPED_BUG_ABORT_CODE
+                    {
+                        debug!("Typed bug abort detected: code {}", code);
+                        return Ok(vec![OracleFinding {
+                            oracle: "TypedBugOracle".to_string(),
+                            severity: movy_types::oracle::Severity::Critical,
+                            extra: json!({
+                                "abort_code": code,
+                            }),
+                        }]);
+                    }
                 }
                 _ => return Ok(Vec::new()),
             }

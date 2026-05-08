@@ -42,7 +42,7 @@ sui-sdk-types = {workspace = true}
 shared-crypto = {workspace = true}
 sui-sdk = {workspace = true}
 
-movy-types = {workspace = true}
+movy-types = {workspace = true, features = ["sui"]}
 
 [build-dependencies]
 cynic-codegen = { version = "3" }

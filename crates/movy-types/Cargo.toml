@@ -13,22 +13,39 @@ color-eyre = {workspace = true}
 serde_json = {workspace = true}
 toml = {workspace = true}
 bcs = {workspace = true}
-reqwest = {workspace = true}
+reqwest = {workspace = true, optional = true}
 anyhow = {workspace = true}
-object_store = {workspace = true}
-mdbx-derive = {workspace = true}
-fastcrypto = {workspace = true}
-libafl = {workspace = true}
-tokio = {workspace = true}
-move-binary-format = {workspace = true}
-move-core-types = {workspace = true}
+object_store = {workspace = true, optional = true}
+mdbx-derive = {workspace = true, optional = true}
+fastcrypto = {workspace = true, optional = true}
+libafl = {workspace = true, optional = true}
+tokio = {workspace = true, optional = true}
+move-binary-format = {workspace = true, optional = true}
+move-core-types = {workspace = true, optional = true}
 alloy-primitives = {workspace = true, features = ["serde"]}
 serde = {workspace = true}
 itertools = {workspace = true}
 log = {workspace = true}
-glob = {workspace = true}
+glob = {workspace = true, optional = true}
 const-hex = {workspace = true}
-tonic = {workspace = true}
+tonic = {workspace = true, optional = true}
 bitflags = {workspace = true, features = ["serde"]}
-sui-types = {workspace = true}
-sui-sdk = {workspace = true}
+sui-types = {workspace = true, optional = true}
+sui-sdk = {workspace = true, optional = true}
+
+[features]
+default = []
+fuzz = ["dep:libafl"]
+sui = [
+    "dep:fastcrypto",
+    "dep:glob",
+    "dep:mdbx-derive",
+    "dep:move-binary-format",
+    "dep:move-core-types",
+    "dep:object_store",
+    "dep:reqwest",
+    "dep:sui-sdk",
+    "dep:sui-types",
+    "dep:tokio",
+    "dep:tonic",
+]

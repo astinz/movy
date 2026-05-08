@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap, fmt::Display, marker::PhantomData, ops::AddAssign};
+use std::{borrow::Cow, marker::PhantomData, ops::AddAssign};
 
 use libafl::{
     HasMetadata,
@@ -11,14 +11,10 @@ use log::trace;
 use movy_replay::{
     db::{ObjectStoreInfo, ObjectStoreMintObject},
     exec::{ExecutionTracedResults, SuiExecutor},
-    tracer::{concolic::ConcolicState, fuzz::SuiFuzzTracer, op::Log, oracle::SuiGeneralOracle},
+    tracer::{fuzz::SuiFuzzTracer, oracle::SuiGeneralOracle},
 };
 use movy_sui::database::cache::{CachedStore, ObjectSuiStoreCommit};
-use movy_types::{
-    input::{FunctionIdent, MoveAddress},
-    oracle::{Event, OracleFinding},
-};
-use serde::{Deserialize, Serialize};
+use movy_types::input::MoveAddress;
 use sui_types::{
     effects::TransactionEffectsAPI,
     execution_status::ExecutionStatus,
@@ -28,44 +24,10 @@ use sui_types::{
 use crate::{
     input::MoveInput,
     meta::HasFuzzMetadata,
+    operations::fuzz::CODE_OBSERVER_NAME,
+    outcome::{ExecutionExtraOutcome, ExecutionOutcome, GlobalOutcome},
     state::{ExtraNonSerdeFuzzState, HasExtraState, HasFuzzEnv},
 };
-
-pub const CODE_OBSERVER_NAME: &str = "code_observer";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutionExtraOutcome {
-    pub logs: BTreeMap<FunctionIdent, Vec<Log>>,
-    pub solver: ConcolicState,
-    pub stage_idx: Option<usize>,
-    pub success: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct ExecutionOutcome {
-    pub events_verdict: ExitKind,
-    pub events: Vec<Event>,
-    #[serde(default)]
-    pub allowed_success: bool,
-    #[serde(default)]
-    pub findings: Vec<OracleFinding>,
-}
-
-impl Display for ExecutionOutcome {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ExecutionOutcome {{ events_verdict: {:?}, allowed_success: {}, findings: {:?} }}",
-            self.events_verdict, self.allowed_success, self.findings
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct GlobalOutcome {
-    pub exec: ExecutionOutcome,
-    pub extra: ExecutionExtraOutcome,
-}
 
 pub struct SuiFuzzExecutor<T, OT, RT, I, S> {
     pub executor: SuiExecutor<T>,
@@ -151,10 +113,13 @@ where
         trace!("Execution finished with status: {:?}", effects.status());
 
         let (stage_idx, success) = match effects.status() {
-            ExecutionStatus::Failure { command, .. } => (
+            ExecutionStatus::Failure(failure) => (
                 // command index may be out of bound when meeting non-aborted error
-                if command.is_some_and(|c| c < input.sequence().commands.len()) {
-                    command.clone()
+                if failure
+                    .command
+                    .is_some_and(|c| c < input.sequence().commands.len())
+                {
+                    failure.command
                 } else {
                     None
                 },

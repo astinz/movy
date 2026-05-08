@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use move_binary_format::file_format::Bytecode;
 use move_trace_format::format::TraceEvent;
 use move_vm_stack::Stack;
 use serde_json::json;
@@ -52,8 +51,8 @@ impl<T, S> SuiGeneralOracle<T, S> for InfiniteLoopOracle {
             TraceEvent::BeforeInstruction {
                 pc, instruction, ..
             } => {
-                match instruction {
-                    Bytecode::BrFalse(_) | Bytecode::BrTrue(_) => {
+                match instruction.as_str() {
+                    "BR_FALSE" | "BR_TRUE" => {
                         let Some(func) = current_function.and_then(to_module_func) else {
                             return Ok(vec![]);
                         };
