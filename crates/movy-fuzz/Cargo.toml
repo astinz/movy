@@ -37,8 +37,6 @@ move-core-types = {workspace = true, optional = true}
 move-model = {workspace = true, optional = true}
 move-stackless-bytecode = {workspace = true, optional = true}
 move-trace-format = {workspace = true, optional = true}
-move-vm-stack = {workspace = true, optional = true}
-move-vm-types = {workspace = true, optional = true}
 sui-types = {workspace = true, optional = true}
 sui-json-rpc-types = {workspace = true, optional = true}
 pprof = {workspace = true, optional = true, features = ["flamegraph"] }
@@ -53,8 +51,6 @@ sui = [
     "dep:move-model",
     "dep:move-stackless-bytecode",
     "dep:move-trace-format",
-    "dep:move-vm-stack",
-    "dep:move-vm-types",
     "movy-types/sui",
     "dep:movy-replay",
     "dep:movy-sui",

@@ -1,5 +1,4 @@
-use move_trace_format::format::TraceEvent;
-use move_vm_stack::Stack;
+use move_trace_format::format::{TraceEvent, TraceStack};
 use movy_types::{
     error::MovyError,
     input::{FunctionIdent, MoveSequence},
@@ -20,7 +19,7 @@ pub trait SuiGeneralOracle<T, S> {
     fn event(
         &mut self,
         event: &TraceEvent,
-        stack: Option<&Stack>,
+        stack: Option<&TraceStack>,
         symbol_stack: &ConcolicState,
         current_function: Option<&FunctionIdent>,
         state: &mut S,
@@ -47,7 +46,7 @@ impl<T, S> SuiGeneralOracle<T, S> for () {
     fn event(
         &mut self,
         _event: &TraceEvent,
-        _stack: Option<&Stack>,
+        _stack: Option<&TraceStack>,
         _symbol_stack: &ConcolicState,
         _current_function: Option<&movy_types::input::FunctionIdent>,
         _state: &mut S,
@@ -83,7 +82,7 @@ where
     fn event(
         &mut self,
         event: &TraceEvent,
-        stack: Option<&Stack>,
+        stack: Option<&TraceStack>,
         symbol_stack: &ConcolicState,
         current_function: Option<&movy_types::input::FunctionIdent>,
         state: &mut S,
@@ -145,7 +144,7 @@ where
     fn event(
         &mut self,
         event: &TraceEvent,
-        stack: Option<&Stack>,
+        stack: Option<&TraceStack>,
         symbol_stack: &ConcolicState,
         current_function: Option<&FunctionIdent>,
         state: &mut S,

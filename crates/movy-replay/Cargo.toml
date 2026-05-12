@@ -16,7 +16,6 @@ move-trace-format ={workspace = true}
 move-binary-format = {workspace = true}
 move-core-types = {workspace = true}
 move-vm-runtime = {workspace = true, features = ["tracing"]}
-move-vm-types = {workspace = true}
 color-eyre = {workspace = true}
 sui-execution.workspace = true
 prometheus.workspace = true
@@ -36,7 +35,6 @@ libafl = {workspace = true}
 libafl_bolts = {workspace = true}
 alloy-primitives = {workspace = true}
 const-hex = {workspace = true}
-move-vm-stack = { workspace = true }
 mdbx-derive = {workspace = true}
 z3 = {workspace = true } 
 tokio-stream = {workspace = true}

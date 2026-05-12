@@ -5,11 +5,9 @@ use libafl::{executors::ExitKind, observers::StdMapObserver};
 use libafl_bolts::tuples::{Handle, MatchName, MatchNameRef};
 use log::{trace, warn};
 use move_trace_format::{
-    format::{Effect, TraceEvent},
+    format::{Effect, TraceEvent, TraceStack},
     interface::Tracer,
 };
-use move_vm_stack::Stack;
-use move_vm_types::values::IntegerValue;
 use movy_types::{error::MovyError, input::FunctionIdent, oracle::OracleFinding};
 
 use crate::tracer::{
@@ -157,23 +155,13 @@ where
         self.outcome
     }
 
-    fn bin_ops(stack: Option<&Stack>) -> Result<(Magic, Magic), MovyError> {
+    fn bin_ops(stack: Option<&TraceStack>) -> Result<(Magic, Magic), MovyError> {
         if let Some(stack) = stack {
-            let stack_len = stack.value.len();
-            let rhs = stack
-                .value
-                .get(stack_len - 1)
-                .ok_or_else(|| eyre!("stack less than 2?!"))?
-                .copy_value()?
-                .value_as::<IntegerValue>()?
-                .into();
-            let lhs = stack
-                .value
-                .get(stack_len - 2)
-                .ok_or_else(|| eyre!("stack less than 2?!"))?
-                .copy_value()?
-                .value_as::<IntegerValue>()?
-                .into();
+            let mut values = stack
+                .last_n(2)
+                .ok_or_else(|| eyre!("stack has fewer than two concrete values"))?;
+            let lhs = Magic::try_from(values.next().unwrap())?;
+            let rhs = Magic::try_from(values.next().unwrap())?;
             Ok((lhs, rhs))
         } else {
             Err(eyre!("we need two values on top of stack but get none...").into())
@@ -183,7 +171,7 @@ where
     pub fn notify_event(
         &mut self,
         event: &TraceEvent,
-        stack: Option<&move_vm_stack::Stack>,
+        stack: Option<&TraceStack>,
     ) -> Result<(), MovyError> {
         let oracle_vulns = self.oracles.event(
             event,
@@ -290,8 +278,8 @@ where
                         }
                     },
                     "CAST_U8" | "CAST_U16" | "CAST_U32" | "CAST_U64" | "CAST_U128" => {
-                        if let Some(Some(lhs)) = stack.map(|s| s.value.last()) {
-                            let lhs: Magic = lhs.copy_value()?.value_as::<IntegerValue>()?.into();
+                        if let Some(lhs) = stack.and_then(|s| s.last()) {
+                            let lhs = Magic::try_from(lhs)?;
                             if let Some(current_function) = self.current_functions.first() {
                                 self.outcome
                                     .logs
@@ -332,7 +320,7 @@ where
         &mut self,
         event: &TraceEvent,
         _writer: &mut move_trace_format::interface::Writer<'_>,
-        stack: Option<&move_vm_stack::Stack>,
+        stack: Option<&TraceStack>,
     ) -> bool {
         if let Err(e) = self.notify_event(event, stack) {
             warn!("Error during tracing: {}", e);

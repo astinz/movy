@@ -1,4 +1,4 @@
-use move_trace_format::interface::Tracer;
+use move_trace_format::{format::TraceStack, interface::Tracer};
 
 pub mod concolic;
 pub mod fuzz;
@@ -14,7 +14,7 @@ impl Tracer for NopTracer {
         &mut self,
         _event: &move_trace_format::format::TraceEvent,
         _writer: &mut move_trace_format::interface::Writer<'_>,
-        _stack: Option<&move_vm_stack::Stack>,
+        _stack: Option<&TraceStack>,
     ) -> bool {
         true
     }
@@ -34,7 +34,7 @@ where
         &mut self,
         event: &move_trace_format::format::TraceEvent,
         writer: &mut move_trace_format::interface::Writer<'_>,
-        stack: Option<&move_vm_stack::Stack>,
+        stack: Option<&TraceStack>,
     ) -> bool {
         match self {
             Self::T1(t) => t.notify(event, writer, stack),
@@ -64,7 +64,7 @@ where
         &mut self,
         event: &move_trace_format::format::TraceEvent,
         writer: &mut move_trace_format::interface::Writer<'_>,
-        stack: Option<&move_vm_stack::Stack>,
+        stack: Option<&TraceStack>,
     ) -> bool {
         if let Some(tracer) = &mut self.tracer {
             tracer.notify(event, writer, stack)
@@ -88,7 +88,7 @@ where
         &mut self,
         event: &move_trace_format::format::TraceEvent,
         writer: &mut move_trace_format::interface::Writer<'_>,
-        stack: Option<&move_vm_stack::Stack>,
+        stack: Option<&TraceStack>,
     ) -> bool {
         let keep_t1 = self.t1.notify(event, writer, stack);
         let keep_t2 = self.t2.notify(event, writer, stack);

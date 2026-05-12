@@ -1,6 +1,5 @@
 use move_core_types::u256::U256;
-use move_trace_format::format::TraceEvent;
-use move_vm_stack::Stack;
+use move_trace_format::format::{TraceEvent, TraceStack, TraceValue};
 use serde_json::json;
 
 use movy_replay::tracer::{
@@ -18,12 +17,12 @@ use sui_types::effects::TransactionEffects;
 pub struct OverflowOracle;
 
 /// Count the number of significant bits in the concrete value (0 => 0 bits).
-fn value_sig_bits(v: &move_vm_types::values::Value) -> u32 {
-    let as_u256 = value_to_u256(v);
+fn value_sig_bits(v: &TraceValue) -> Option<u32> {
+    let as_u256 = value_to_u256(v)?;
     if as_u256 == U256::zero() {
-        0
+        Some(0)
     } else {
-        256 - as_u256.leading_zeros()
+        Some(256 - as_u256.leading_zeros())
     }
 }
 
@@ -40,7 +39,7 @@ impl<T, S> SuiGeneralOracle<T, S> for OverflowOracle {
     fn event(
         &mut self,
         event: &TraceEvent,
-        stack: Option<&Stack>,
+        stack: Option<&TraceStack>,
         _symbol_stack: &ConcolicState,
         current_function: Option<&movy_types::input::FunctionIdent>,
         _state: &mut S,
@@ -56,14 +55,20 @@ impl<T, S> SuiGeneralOracle<T, S> for OverflowOracle {
                     Some(s) => s,
                     None => return Ok(vec![]),
                 };
-                let Ok(vals_iter) = stack.last_n(2) else {
+                let Some(vals_iter) = stack.last_n(2) else {
                     return Ok(vec![]);
                 };
                 let vals: Vec<_> = vals_iter.collect();
                 let (lhs, rhs) = (vals[0], vals[1]);
-                let lhs_width_bits = value_bitwidth(lhs); // type width (u8/u16/...)
-                let lhs_sig_bits = value_sig_bits(lhs); // actual significant bits of the value
-                let rhs_bits = value_to_u256(rhs);
+                let Some(lhs_width_bits) = value_bitwidth(lhs) else {
+                    return Ok(vec![]);
+                };
+                let Some(lhs_sig_bits) = value_sig_bits(lhs) else {
+                    return Ok(vec![]);
+                };
+                let Some(rhs_bits) = value_to_u256(rhs) else {
+                    return Ok(vec![]);
+                };
 
                 let overflow = if rhs_bits >= U256::from(lhs_width_bits) {
                     true

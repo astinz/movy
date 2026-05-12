@@ -5860,7 +5860,6 @@ version = "0.0.1"
 dependencies = [
  "move-binary-format",
  "move-core-types",
- "move-vm-stack",
  "serde",
  "serde_json",
  "zstd",
@@ -5904,7 +5903,6 @@ dependencies = [
  "move-core-types",
  "move-trace-format",
  "move-vm-config",
- "move-vm-stack",
  "parking_lot 0.11.2",
  "quick_cache",
  "serde",
@@ -5980,21 +5978,6 @@ dependencies = [
  "parking_lot 0.11.2",
  "smallvec",
  "tracing",
-]
-
-[[package]]
-name = "move-vm-stack"
-version = "0.1.0"
-dependencies = [
- "move-vm-types",
-]
-
-[[package]]
-name = "move-vm-types"
-version = "0.1.0"
-dependencies = [
- "move-binary-format",
- "move-core-types",
 ]
 
 [[package]]
@@ -6100,8 +6083,6 @@ dependencies = [
  "move-model",
  "move-stackless-bytecode",
  "move-trace-format",
- "move-vm-stack",
- "move-vm-types",
  "movy-fuzz-core",
  "movy-replay",
  "movy-sui",
@@ -6163,8 +6144,6 @@ dependencies = [
  "move-core-types",
  "move-trace-format",
  "move-vm-runtime",
- "move-vm-stack",
- "move-vm-types",
  "movy-analysis",
  "movy-sui",
  "movy-types",

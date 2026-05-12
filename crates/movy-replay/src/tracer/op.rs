@@ -2,8 +2,7 @@ use std::fmt::Display;
 
 use alloy_primitives::U256;
 use color_eyre::eyre::eyre;
-use move_binary_format::file_format::Bytecode;
-use move_vm_types::values::IntegerValue;
+use move_trace_format::{format::TraceValue, value::SerializableMoveValue};
 use movy_types::error::MovyError;
 use serde::{Deserialize, Serialize};
 
@@ -32,15 +31,39 @@ impl Display for Magic {
     }
 }
 
-impl From<IntegerValue> for Magic {
-    fn from(value: IntegerValue) -> Self {
+impl TryFrom<&SerializableMoveValue> for Magic {
+    type Error = MovyError;
+
+    fn try_from(value: &SerializableMoveValue) -> Result<Self, Self::Error> {
         match value {
-            IntegerValue::U8(v) => Self::U8(v),
-            IntegerValue::U16(v) => Self::U16(v),
-            IntegerValue::U32(v) => Self::U32(v),
-            IntegerValue::U64(v) => Self::U64(v),
-            IntegerValue::U128(v) => Self::U128(v),
-            IntegerValue::U256(v) => Self::U256(U256::from_be_bytes(v.to_be_bytes())),
+            SerializableMoveValue::U8(v) => Ok(Self::U8(*v)),
+            SerializableMoveValue::U16(v) => Ok(Self::U16(*v)),
+            SerializableMoveValue::U32(v) => Ok(Self::U32(*v)),
+            SerializableMoveValue::U64(v) => Ok(Self::U64(*v)),
+            SerializableMoveValue::U128(v) => Ok(Self::U128(*v)),
+            SerializableMoveValue::U256(v) => Ok(Self::U256(U256::from_be_bytes(v.to_be_bytes()))),
+            SerializableMoveValue::Vector(values) => values
+                .iter()
+                .map(|value| match value {
+                    SerializableMoveValue::U8(byte) => Ok(*byte),
+                    other => Err(eyre!("unsupported byte vector element {other:?}").into()),
+                })
+                .collect::<Result<Vec<_>, MovyError>>()
+                .map(Self::Bytes),
+            other => Err(eyre!("unsupported magic value {other:?}").into()),
+        }
+    }
+}
+
+impl TryFrom<&TraceValue> for Magic {
+    type Error = MovyError;
+
+    fn try_from(value: &TraceValue) -> Result<Self, Self::Error> {
+        match value {
+            TraceValue::RuntimeValue { value } => Self::try_from(value),
+            TraceValue::ImmRef { .. } | TraceValue::MutRef { .. } => {
+                Err(eyre!("references are not magic values").into())
+            }
         }
     }
 }
@@ -64,21 +87,6 @@ impl Display for CmpOp {
             Self::GT => f.write_str(">"),
             Self::NEQ => f.write_str("!="),
             Self::EQ => f.write_str("=="),
-        }
-    }
-}
-
-impl TryFrom<&Bytecode> for CmpOp {
-    type Error = MovyError;
-    fn try_from(value: &Bytecode) -> Result<Self, Self::Error> {
-        match value {
-            Bytecode::Le => Ok(Self::LE),
-            Bytecode::Lt => Ok(Self::LT),
-            Bytecode::Ge => Ok(Self::GE),
-            Bytecode::Gt => Ok(Self::GT),
-            Bytecode::Neq => Ok(Self::NEQ),
-            Bytecode::Eq => Ok(Self::EQ),
-            _ => Err(eyre!("{:?} can not convert into Cmpop", value).into()),
         }
     }
 }

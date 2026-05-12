@@ -2,9 +2,10 @@ use std::{cmp::Ordering, collections::BTreeMap, str::FromStr};
 
 use log::{trace, warn};
 use move_core_types::{language_storage::TypeTag, u256::U256};
-use move_trace_format::format::{Effect, TraceEvent, TypeTagWithRefs};
-use move_vm_stack::Stack;
-use move_vm_types::values::{Reference, VMValueCast, Value};
+use move_trace_format::{
+    format::{Effect, TraceEvent, TraceStack, TraceValue, TypeTagWithRefs},
+    value::SerializableMoveValue,
+};
 use z3::ast::{Ast, Bool, Int};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,13 +17,6 @@ enum PrimitiveValue {
     U64(u64),
     U128(u128),
     U256(U256),
-}
-
-fn try_value_as<T>(v: &Value) -> Option<T>
-where
-    Value: VMValueCast<T>,
-{
-    v.copy_value().ok()?.value_as::<T>().ok()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,37 +65,27 @@ impl PrimitiveValue {
     }
 }
 
-fn extract_primitive_value(v: &Value) -> PrimitiveValue {
-    if let Some(reference) = try_value_as::<Reference>(v) {
-        let inner = reference
-            .read_ref()
-            .expect("failed to read reference for comparison");
-        return extract_primitive_value(&inner);
+fn extract_serializable_primitive(value: &SerializableMoveValue) -> Option<PrimitiveValue> {
+    match value {
+        SerializableMoveValue::Bool(value) => Some(PrimitiveValue::Bool(*value)),
+        SerializableMoveValue::U8(value) => Some(PrimitiveValue::U8(*value)),
+        SerializableMoveValue::U16(value) => Some(PrimitiveValue::U16(*value)),
+        SerializableMoveValue::U32(value) => Some(PrimitiveValue::U32(*value)),
+        SerializableMoveValue::U64(value) => Some(PrimitiveValue::U64(*value)),
+        SerializableMoveValue::U128(value) => Some(PrimitiveValue::U128(*value)),
+        SerializableMoveValue::U256(value) => Some(PrimitiveValue::U256(*value)),
+        SerializableMoveValue::Address(_)
+        | SerializableMoveValue::Struct(_)
+        | SerializableMoveValue::Vector(_)
+        | SerializableMoveValue::Variant(_) => None,
     }
+}
 
-    if let Some(b) = try_value_as::<bool>(v) {
-        return PrimitiveValue::Bool(b);
+fn extract_primitive_value(value: &TraceValue) -> Option<PrimitiveValue> {
+    match value {
+        TraceValue::RuntimeValue { value } => extract_serializable_primitive(value),
+        TraceValue::ImmRef { .. } | TraceValue::MutRef { .. } => None,
     }
-    if let Some(u) = try_value_as::<u8>(v) {
-        return PrimitiveValue::U8(u);
-    }
-    if let Some(u) = try_value_as::<u16>(v) {
-        return PrimitiveValue::U16(u);
-    }
-    if let Some(u) = try_value_as::<u32>(v) {
-        return PrimitiveValue::U32(u);
-    }
-    if let Some(u) = try_value_as::<u64>(v) {
-        return PrimitiveValue::U64(u);
-    }
-    if let Some(u) = try_value_as::<u128>(v) {
-        return PrimitiveValue::U128(u);
-    }
-    if let Some(u) = try_value_as::<U256>(v) {
-        return PrimitiveValue::U256(u);
-    }
-
-    panic!("Unsupported value type {:?} for comparison", v);
 }
 
 fn compare_value_impl(v1: &PrimitiveValue, v2: &PrimitiveValue) -> Ordering {
@@ -120,18 +104,18 @@ fn compare_value_impl(v1: &PrimitiveValue, v2: &PrimitiveValue) -> Ordering {
     }
 }
 
-pub fn compare_value(v1: &Value, v2: &Value) -> Ordering {
-    let p1 = extract_primitive_value(v1);
-    let p2 = extract_primitive_value(v2);
-    compare_value_impl(&p1, &p2)
+pub fn compare_value(v1: &TraceValue, v2: &TraceValue) -> Option<Ordering> {
+    let p1 = extract_primitive_value(v1)?;
+    let p2 = extract_primitive_value(v2)?;
+    Some(compare_value_impl(&p1, &p2))
 }
 
-pub fn value_to_u256(v: &Value) -> U256 {
-    extract_primitive_value(v).as_u256()
+pub fn value_to_u256(v: &TraceValue) -> Option<U256> {
+    extract_primitive_value(v).map(|value| value.as_u256())
 }
 
-pub fn value_bitwidth(v: &Value) -> u32 {
-    extract_primitive_value(v).bitwidth()
+pub fn value_bitwidth(v: &TraceValue) -> Option<u32> {
+    extract_primitive_value(v).map(|value| value.bitwidth())
 }
 
 fn int_two_pow(bits: u32) -> Int {
@@ -286,8 +270,8 @@ impl ConcolicState {
         }
     }
 
-    fn resolve_value(value: &Value) -> Int {
-        match extract_primitive_value(value) {
+    fn resolve_value(value: &TraceValue) -> Option<Int> {
+        Some(match extract_primitive_value(value)? {
             PrimitiveValue::Bool(b) => {
                 let int_val = if b { 1 } else { 0 };
                 Int::from_u64(int_val)
@@ -298,15 +282,15 @@ impl ConcolicState {
             PrimitiveValue::U64(u) => Int::from_u64(u),
             PrimitiveValue::U128(u) => Int::from_str(&u.to_string()).unwrap(),
             PrimitiveValue::U256(u) => Int::from_str(&u.to_string()).unwrap(),
-        }
+        })
     }
 
-    pub fn notify_event(&mut self, event: &TraceEvent, stack: Option<&Stack>) -> Option<Bool> {
+    pub fn notify_event(&mut self, event: &TraceEvent, stack: Option<&TraceStack>) -> Option<Bool> {
         if self.disable {
             return None;
         }
         if let Some(s) = stack {
-            if self.stack.len() != s.value.len() && s.value.is_empty() {
+            if self.stack.len() != s.len() && s.is_empty() {
                 self.stack.clear();
             }
             if let TraceEvent::Effect(v) = event
@@ -314,10 +298,12 @@ impl ConcolicState {
             {
                 self.stack.pop();
             }
-            if self.stack.len() != s.value.len() {
+            if self.stack.len() != s.len() {
                 warn!(
                     "stack: {:?}, stack from trace: {:?}, event: {:?}, disabling concolic execution",
-                    self.stack, s.value, event
+                    self.stack,
+                    s.values(),
+                    event
                 );
                 self.disable = true;
                 return None;
@@ -328,17 +314,17 @@ impl ConcolicState {
 
         let mut process_binary_op = || {
             let (rhs, lhs) = (self.stack.pop().unwrap(), self.stack.pop().unwrap());
-            let mut stack_iter = stack.unwrap().last_n(2).unwrap();
+            let mut stack_iter = stack?.last_n(2)?;
             let true_lhs = stack_iter.next().unwrap();
             let true_rhs = stack_iter.next().unwrap();
             let (new_l, new_r) = match (lhs, rhs) {
                 (SymbolValue::Value(l), SymbolValue::Value(r)) => (l, r),
                 (SymbolValue::Value(l), SymbolValue::Unknown) => {
-                    let new_r = Self::resolve_value(true_rhs);
+                    let new_r = Self::resolve_value(true_rhs)?;
                     (l, new_r)
                 }
                 (SymbolValue::Unknown, SymbolValue::Value(r)) => {
-                    let new_l = Self::resolve_value(true_lhs);
+                    let new_l = Self::resolve_value(true_lhs)?;
                     (new_l, r)
                 }
                 (SymbolValue::Unknown, SymbolValue::Unknown) => {
@@ -358,7 +344,7 @@ impl ConcolicState {
             }
             TraceEvent::OpenFrame { frame, gas_left: _ } => {
                 trace!("Open frame: {:?}", frame);
-                trace!("Current stack: {:?}", stack.map(|s| &s.value));
+                trace!("Current stack: {:?}", stack.map(|s| s.values()));
                 let param_count = frame.parameters.len();
                 if self.locals.is_empty() {
                     let mut locals = if frame.locals_types.is_empty() {
@@ -412,7 +398,10 @@ impl ConcolicState {
                 return_: _,
                 gas_left: _,
             } => {
-                trace!("Close frame. Current stack: {:?}", stack.map(|s| &s.value));
+                trace!(
+                    "Close frame. Current stack: {:?}",
+                    stack.map(|s| s.values())
+                );
                 self.locals.pop();
             }
             TraceEvent::BeforeInstruction {
@@ -426,7 +415,7 @@ impl ConcolicState {
                     pc,
                     instruction,
                     extra,
-                    stack.map(|s| &s.value)
+                    stack.map(|s| s.values())
                 );
             }
             _ => {

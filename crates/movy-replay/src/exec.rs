@@ -36,7 +36,7 @@ struct BorrowedTracer {
         *mut (),
         &move_trace_format::format::TraceEvent,
         &mut move_trace_format::interface::Writer<'_>,
-        Option<&move_vm_stack::Stack>,
+        Option<&move_trace_format::format::TraceStack>,
     ) -> bool,
     wants_effects_fn: unsafe fn(*mut ()) -> bool,
 }
@@ -54,7 +54,7 @@ impl BorrowedTracer {
         ptr: *mut (),
         event: &move_trace_format::format::TraceEvent,
         writer: &mut move_trace_format::interface::Writer<'_>,
-        stack: Option<&move_vm_stack::Stack>,
+        stack: Option<&move_trace_format::format::TraceStack>,
     ) -> bool {
         unsafe { (&mut *(ptr as *mut R)).notify(event, writer, stack) }
     }
@@ -69,7 +69,7 @@ impl Tracer for BorrowedTracer {
         &mut self,
         event: &move_trace_format::format::TraceEvent,
         writer: &mut move_trace_format::interface::Writer<'_>,
-        stack: Option<&move_vm_stack::Stack>,
+        stack: Option<&move_trace_format::format::TraceStack>,
     ) -> bool {
         // SAFETY: run_tx_trace drops the MoveTraceBuilder before returning the
         // owned tracer, so Sui never observes this pointer after tracer moves.
@@ -304,6 +304,7 @@ where
         gas: ObjectID,
         project: SuiCompiledPackage,
     ) -> Result<ObjectID, MovyError> {
+        let project = project.movy_mock()?;
         let package_id = project.package_id;
         let (mut modules, dependencies) = project.into_deployment();
 

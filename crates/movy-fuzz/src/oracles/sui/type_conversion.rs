@@ -1,5 +1,4 @@
-use move_trace_format::format::TraceEvent;
-use move_vm_stack::Stack;
+use move_trace_format::format::{TraceEvent, TraceStack};
 use movy_types::input::MoveSequence;
 use movy_types::oracle::OracleFinding;
 use serde_json::json;
@@ -25,7 +24,7 @@ impl<T, S> SuiGeneralOracle<T, S> for TypeConversionOracle {
     fn event(
         &mut self,
         event: &TraceEvent,
-        stack: Option<&Stack>,
+        stack: Option<&TraceStack>,
         _symbol_stack: &ConcolicState,
         current_function: Option<&movy_types::input::FunctionIdent>,
         _state: &mut S,
@@ -38,18 +37,18 @@ impl<T, S> SuiGeneralOracle<T, S> for TypeConversionOracle {
                     Some(s) => s,
                     None => return Ok(vec![]),
                 };
-                let Ok(vals_iter) = stack.last_n(1) else {
+                let Some(vals_iter) = stack.last_n(1) else {
                     return Ok(vec![]);
                 };
                 let vals: Vec<_> = vals_iter.collect();
                 let val = vals.first().unwrap();
                 let unnecessary = match instruction.as_str() {
-                    "CAST_U8" => value_bitwidth(val) == 8,
-                    "CAST_U16" => value_bitwidth(val) == 16,
-                    "CAST_U32" => value_bitwidth(val) == 32,
-                    "CAST_U64" => value_bitwidth(val) == 64,
-                    "CAST_U128" => value_bitwidth(val) == 128,
-                    "CAST_U256" => value_bitwidth(val) == 256,
+                    "CAST_U8" => value_bitwidth(val) == Some(8),
+                    "CAST_U16" => value_bitwidth(val) == Some(16),
+                    "CAST_U32" => value_bitwidth(val) == Some(32),
+                    "CAST_U64" => value_bitwidth(val) == Some(64),
+                    "CAST_U128" => value_bitwidth(val) == Some(128),
+                    "CAST_U256" => value_bitwidth(val) == Some(256),
                     _ => false,
                 };
                 if unnecessary {

@@ -37,7 +37,9 @@ pub struct SuiCompiledPackage {
 }
 
 mod compiled_modules_serde {
-    use move_binary_format::{CompiledModule, file_format_common::VERSION_MAX};
+    use move_binary_format::{
+        CompiledModule, binary_config::BinaryConfig, file_format_common::VERSION_MAX,
+    };
     use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as DeError};
 
     pub fn serialize<S>(modules: &[CompiledModule], serializer: S) -> Result<S::Ok, S::Error>
@@ -62,7 +64,8 @@ mod compiled_modules_serde {
         Vec::<Vec<u8>>::deserialize(deserializer)?
             .into_iter()
             .map(|bytes| {
-                CompiledModule::deserialize_with_defaults(&bytes).map_err(D::Error::custom)
+                CompiledModule::deserialize_with_config(&bytes, &BinaryConfig::new_unpublishable())
+                    .map_err(D::Error::custom)
             })
             .collect()
     }

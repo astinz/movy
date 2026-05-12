@@ -1,6 +1,5 @@
 use log::{debug, trace};
-use move_trace_format::format::TraceEvent;
-use move_vm_stack::Stack;
+use move_trace_format::format::{TraceEvent, TraceStack};
 
 use movy_replay::tracer::{concolic::ConcolicState, oracle::SuiGeneralOracle};
 use movy_types::{error::MovyError, input::MoveSequence, oracle::OracleFinding};
@@ -52,7 +51,7 @@ where
     fn event(
         &mut self,
         _event: &TraceEvent,
-        _stack: Option<&Stack>,
+        _stack: Option<&TraceStack>,
         _symbol_stack: &ConcolicState,
         _current_function: Option<&movy_types::input::FunctionIdent>,
         _state: &mut S,
