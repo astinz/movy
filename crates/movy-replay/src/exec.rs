@@ -373,7 +373,13 @@ where
             self.db.commit_store(store, &effects)?;
             Ok(new_object.0)
         } else {
-            Err(eyre!("fail to deploy").into())
+            Err(eyre!(
+                "fail to deploy package {}: status {:?}; changed objects {:?}",
+                package_id,
+                effects.status(),
+                effects.all_changed_objects()
+            )
+            .into())
         }
     }
 }

@@ -18,9 +18,10 @@ use movy_types::{
 };
 use sui_types::{
     Identifier,
-    base_types::{ObjectID, SequenceNumber},
+    base_types::ObjectID,
     digests::TransactionDigest,
     effects::TransactionEffectsAPI,
+    move_package::MovePackage,
     object::Object,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     storage::{BackingPackageStore, BackingStore, ObjectStore},
@@ -122,8 +123,11 @@ impl<
         let abi_result = SuiCompiledPackage::build_all_unpublished_from_folder(path, false)?;
         let mut non_test_abi = abi_result.abi()?;
         log::info!("Compiling {} with test mode...", path.display());
-        let compiled_result = SuiCompiledPackage::build_all_unpublished_from_folder(path, true)?;
+        let mut compiled_result =
+            SuiCompiledPackage::build_all_unpublished_from_folder(path, true)?;
         let package_names = compiled_result.package_names.clone();
+        self.hydrate_published_dependencies(&mut compiled_result)
+            .await?;
         let compiled_result = compiled_result.movy_mock()?;
         log::debug!(
             "test modules are {}",
@@ -189,6 +193,95 @@ impl<
         non_test_abi.published_at(address.into());
         abi.published_at(address.into());
         Ok((address.into(), abi, non_test_abi, package_names))
+    }
+
+    pub async fn load_local_public_functions(
+        &self,
+        path: &Path,
+        deployer: MoveAddress,
+        epoch: u64,
+        epoch_ms: u64,
+        gas: ObjectID,
+    ) -> Result<(MoveAddress, MovePackageAbi, MovePackageAbi, Vec<String>), MovyError> {
+        log::info!("Compiling {} with non-test mode...", path.display());
+        let mut compiled_result =
+            SuiCompiledPackage::build_all_unpublished_from_folder(path, false)?;
+        let mut non_test_abi = compiled_result.abi()?;
+        let package_names = compiled_result.package_names.clone();
+        self.hydrate_published_dependencies(&mut compiled_result)
+            .await?;
+
+        let mut executor = SuiExecutor::new(&self.db)?;
+        let address =
+            executor.deploy_contract(epoch, epoch_ms, deployer.into(), gas, compiled_result)?;
+
+        let mut deployed_abi = self.db.get_package_info(address.into())?.unwrap();
+        non_test_abi.published_at(address.into());
+        deployed_abi.published_at(address.into());
+        Ok((address.into(), deployed_abi, non_test_abi, package_names))
+    }
+
+    pub async fn hydrate_published_dependencies(
+        &self,
+        package: &mut SuiCompiledPackage,
+    ) -> Result<(), MovyError> {
+        for package_id in package
+            .dependencies()
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+        {
+            if let Some(move_package) = self.load_package_object(package_id).await? {
+                log::debug!(
+                    "Hydrated published dependency package {} with {} linkage entries",
+                    package_id,
+                    move_package.linkage_table().len()
+                );
+            } else {
+                return Err(eyre!(
+                    "Published dependency package {} not found in the configured Sui environment",
+                    package_id
+                )
+                .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn load_package_object(
+        &self,
+        package_id: ObjectID,
+    ) -> Result<Option<MovePackage>, MovyError> {
+        if let Some(object) = self.db.get_object(&package_id) {
+            return object
+                .data
+                .try_as_package()
+                .cloned()
+                .ok_or_else(|| {
+                    eyre!("Expected package object for dependency {}", package_id).into()
+                })
+                .map(Some);
+        }
+
+        if let Err(error) = self.db.load_object(package_id.into()).await {
+            log::debug!(
+                "Could not load published dependency package {} from the configured Sui environment: {}",
+                package_id,
+                error
+            );
+            return Ok(None);
+        }
+
+        let Some(object) = self.db.get_object(&package_id) else {
+            return Ok(None);
+        };
+        object
+            .data
+            .try_as_package()
+            .cloned()
+            .ok_or_else(|| eyre!("Expected package object for dependency {}", package_id).into())
+            .map(Some)
     }
 
     pub async fn export_abi(&self) -> Result<BTreeMap<MoveAddress, MovePackageAbi>, MovyError> {

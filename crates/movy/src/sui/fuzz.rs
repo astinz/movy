@@ -20,7 +20,10 @@ use movy_replay::{
 };
 use movy_sui::{
     database::{cache::CachedStore, graphql::GraphQlDatabase},
-    rpc::{graphql::GraphQlClient, grpc::SuiGrpcArg},
+    rpc::{
+        graphql::{GraphQlClient, SuiNetwork},
+        grpc::SuiGrpcArg,
+    },
 };
 use movy_types::{
     abi::{MoveFunctionVisibility, MoveModuleId, MovePackageAbi},
@@ -170,8 +173,23 @@ pub struct SuiFuzzArgs {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum LocalPackageFuzzMode {
+    PublicFunctionsOnly,
+    TestHooks,
+}
+
+impl Default for LocalPackageFuzzMode {
+    fn default() -> Self {
+        Self::PublicFunctionsOnly
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LocalPackageFuzzArgs {
     pub package_path: PathBuf,
+    pub mode: LocalPackageFuzzMode,
+    pub network: Option<SuiNetwork>,
+    pub graphql_url: Option<String>,
     pub deployer: MoveAddress,
     pub attacker: MoveAddress,
     pub time_limit: Option<u64>,
@@ -189,6 +207,9 @@ impl LocalPackageFuzzArgs {
     pub fn new(package_path: impl Into<PathBuf>) -> Self {
         Self {
             package_path: package_path.into(),
+            mode: LocalPackageFuzzMode::default(),
+            network: None,
+            graphql_url: None,
             deployer: MoveAddress::from_str(
                 "0xb64151ee0dd0f7bab72df320c5f8e0c4b784958e7411a6c37d352fe9e176092f",
             )
@@ -230,7 +251,12 @@ impl LocalPackageFuzzArgs {
 
         let seed = self.seed.unwrap_or_else(random_seed);
         let mut rand = SuperRand::new(seed);
-        let graphql = GraphQlClient::new_mystens();
+        let chain = resolve_local_package_chain(
+            &package_path,
+            self.network.clone(),
+            self.graphql_url.as_deref(),
+        )?;
+        let graphql = chain.client.clone();
         let primitives = SuiOnchainArguments {
             checkpoint: (self.checkpoint != 0).then_some(self.checkpoint),
             epoch: (self.epoch != 0).then_some(self.epoch),
@@ -251,20 +277,39 @@ impl LocalPackageFuzzArgs {
             100_000_000_000,
         )?;
 
+        let mode = self.mode.clone();
         let testing_env = SuiTestingEnv::new(env);
-        testing_env.mock_testing_std()?;
+        match mode {
+            LocalPackageFuzzMode::PublicFunctionsOnly => testing_env.install_non_testing_std()?,
+            LocalPackageFuzzMode::TestHooks => testing_env.mock_testing_std()?,
+        }
         testing_env.load_inner_types().await?;
 
-        let (target_package, testing_abi, abi, package_names) = testing_env
-            .load_local(
-                &package_path,
-                self.deployer,
-                self.attacker,
-                primitives.epoch,
-                primitives.epoch_ms,
-                gas_id.into(),
-            )
-            .await?;
+        let (target_package, testing_abi, abi, package_names) = match mode {
+            LocalPackageFuzzMode::PublicFunctionsOnly => {
+                testing_env
+                    .load_local_public_functions(
+                        &package_path,
+                        self.deployer,
+                        primitives.epoch,
+                        primitives.epoch_ms,
+                        gas_id.into(),
+                    )
+                    .await?
+            }
+            LocalPackageFuzzMode::TestHooks => {
+                testing_env
+                    .load_local(
+                        &package_path,
+                        self.deployer,
+                        self.attacker,
+                        primitives.epoch,
+                        primitives.epoch_ms,
+                        gas_id.into(),
+                    )
+                    .await?
+            }
+        };
         testing_env.load_inner_types().await?;
 
         let public_functions = public_function_targets(target_package, &abi);
@@ -341,6 +386,8 @@ impl LocalPackageFuzzArgs {
             seed,
             time_limit,
             output: self.output,
+            network: chain.network,
+            graphql_url: chain.graphql_url,
         })
     }
 }
@@ -354,12 +401,116 @@ pub struct LocalPackageFuzzResult {
     pub seed: u64,
     pub time_limit: Option<u64>,
     pub output: Option<PathBuf>,
+    pub network: String,
+    pub graphql_url: String,
 }
 
 pub async fn fuzz_local_package(
     args: LocalPackageFuzzArgs,
 ) -> Result<LocalPackageFuzzResult, MovyError> {
     args.run().await
+}
+
+struct ResolvedLocalPackageChain {
+    network: String,
+    graphql_url: String,
+    client: GraphQlClient,
+}
+
+fn resolve_local_package_chain(
+    package_path: &std::path::Path,
+    network: Option<SuiNetwork>,
+    graphql_url: Option<&str>,
+) -> Result<ResolvedLocalPackageChain, MovyError> {
+    let inferred_network = if network.is_none() {
+        match infer_network_from_move_lock(package_path) {
+            Ok(network) => network,
+            Err(error) if graphql_url.is_some() => {
+                log::warn!(
+                    "Could not infer Sui network from Move.lock while a custom GraphQL URL was provided: {}",
+                    error
+                );
+                None
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
+    let network = network.or(inferred_network);
+    let graphql_url = graphql_url.map(ToOwned::to_owned).unwrap_or_else(|| {
+        network
+            .clone()
+            .unwrap_or_default()
+            .graphql_url()
+            .to_string()
+    });
+    let network_label = network
+        .map(|network| network.to_string())
+        .unwrap_or_else(|| "custom".to_string());
+
+    Ok(ResolvedLocalPackageChain {
+        network: network_label,
+        client: GraphQlClient::new_url(&graphql_url)?,
+        graphql_url,
+    })
+}
+
+fn infer_network_from_move_lock(
+    package_path: &std::path::Path,
+) -> Result<Option<SuiNetwork>, MovyError> {
+    let lock_path = package_path.join("Move.lock");
+    if !lock_path.is_file() {
+        return Ok(None);
+    }
+
+    let lock = std::fs::read_to_string(&lock_path)
+        .map_err(|error| eyre!("Could not read {}: {}", lock_path.display(), error))?;
+    let lock: toml::Value = toml::from_str(&lock)
+        .map_err(|error| eyre!("Could not parse {}: {}", lock_path.display(), error))?;
+
+    let Some(pinned) = lock.get("pinned").and_then(|value| value.as_table()) else {
+        return Ok(None);
+    };
+
+    let mut environments = BTreeSet::new();
+    for (environment_name, packages) in pinned {
+        let Some(packages) = packages.as_table() else {
+            continue;
+        };
+
+        for package in packages.values() {
+            let Some(package) = package.as_table() else {
+                continue;
+            };
+            let environment = package
+                .get("use_environment")
+                .and_then(|value| value.as_str())
+                .unwrap_or(environment_name);
+
+            if package
+                .get("source")
+                .and_then(|source| source.as_table())
+                .and_then(|source| source.get("root"))
+                .and_then(|root| root.as_bool())
+                .unwrap_or(false)
+            {
+                return SuiNetwork::from_str(environment).map(Some);
+            }
+
+            environments.insert(environment.to_string());
+        }
+    }
+
+    match environments.len() {
+        0 => Ok(None),
+        1 => SuiNetwork::from_str(environments.iter().next().unwrap()).map(Some),
+        _ => Err(eyre!(
+            "Move.lock contains multiple Sui environments ({}). Pass an explicit network or GraphQL URL.",
+            environments.into_iter().collect::<Vec<_>>().join(", ")
+        )
+        .into()),
+    }
 }
 
 fn public_function_targets(package_id: MoveAddress, abi: &MovePackageAbi) -> Vec<FunctionIdent> {

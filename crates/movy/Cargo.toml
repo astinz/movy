@@ -20,6 +20,7 @@ serde = {workspace = true}
 serde_json = {workspace = true}
 itertools = {workspace = true}
 bcs = {workspace = true}
+toml = {workspace = true, optional = true}
 
 movy-aptos = {workspace = true, optional = true}
 movy-fuzz = {workspace = true, features = ["sui"], optional = true}
@@ -35,6 +36,6 @@ analysis = ["dep:glob", "dep:movy-analysis", "movy-analysis/sui", "movy-types/su
 aptos = ["dep:movy-aptos"]
 sui = ["sui-trace", "sui-fuzz", "sui-replay", "sui-static-analysis"]
 sui-trace = ["dep:movy-replay", "dep:movy-sui", "dep:sui-types", "movy-types/sui"]
-sui-fuzz = ["sui-trace", "dep:movy-fuzz", "movy-fuzz/sui"]
+sui-fuzz = ["sui-trace", "dep:movy-fuzz", "movy-fuzz/sui", "dep:toml"]
 sui-replay = ["sui-trace", "dep:movy-fuzz", "movy-fuzz/sui"]
 sui-static-analysis = ["sui-trace", "dep:movy-static-analysis"]

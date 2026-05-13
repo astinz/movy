@@ -6,7 +6,7 @@ use fastcrypto::encoding::Encoding;
 use log::warn;
 use movy_types::error::MovyError;
 use reqwest::header::USER_AGENT;
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sui_types::{
     base_types::ObjectID,
     effects::TransactionEffects,
@@ -448,6 +448,51 @@ pub struct GraphQlClient {
     pub inner: Arc<GraphQlClientInner>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum SuiNetwork {
+    #[default]
+    Mainnet,
+    Testnet,
+    Devnet,
+}
+
+impl SuiNetwork {
+    pub fn graphql_url(&self) -> &'static str {
+        match self {
+            Self::Mainnet => "https://graphql.mainnet.sui.io/graphql",
+            Self::Testnet => "https://graphql.testnet.sui.io/graphql",
+            Self::Devnet => "https://graphql.devnet.sui.io/graphql",
+        }
+    }
+}
+
+impl std::fmt::Display for SuiNetwork {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+            Self::Devnet => "devnet",
+        })
+    }
+}
+
+impl FromStr for SuiNetwork {
+    type Err = MovyError;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "mainnet" => Ok(Self::Mainnet),
+            "testnet" => Ok(Self::Testnet),
+            "devnet" => Ok(Self::Devnet),
+            other => Err(eyre!(
+                "Unsupported Sui environment '{other}'. Use mainnet, testnet, devnet, or provide a custom GraphQL URL."
+            )
+            .into()),
+        }
+    }
+}
+
 impl Deref for GraphQlClient {
     type Target = GraphQlClientInner;
     fn deref(&self) -> &Self::Target {
@@ -462,12 +507,21 @@ impl GraphQlClient {
         }
     }
 
-    pub fn new_mystens() -> Self {
-        Self::new(
+    pub fn new_url(url: &str) -> Result<Self, MovyError> {
+        Ok(Self::new(
             reqwest::Client::new(),
-            reqwest::Url::parse("https://graphql.mainnet.sui.io/graphql").unwrap(),
+            reqwest::Url::parse(url)
+                .map_err(|error| eyre!("Invalid GraphQL URL {url}: {error}"))?,
             ASSUMED_GRAPHQL_CONCURRENT,
-        )
+        ))
+    }
+
+    pub fn new_network(network: SuiNetwork) -> Self {
+        Self::new_url(network.graphql_url()).expect("built-in GraphQL URL must be valid")
+    }
+
+    pub fn new_mystens() -> Self {
+        Self::new_network(SuiNetwork::Mainnet)
     }
 }
 

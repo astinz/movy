@@ -6047,6 +6047,7 @@ dependencies = [
  "serde_json",
  "sui-types",
  "tokio",
+ "toml 0.9.8",
 ]
 
 [[package]]
@@ -6198,6 +6199,7 @@ dependencies = [
  "mdbx-derive",
  "move-binary-format",
  "move-compiler",
+ "move-core-types",
  "move-package",
  "move-trace-format",
  "move-vm-runtime",
@@ -6218,6 +6220,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "toml 0.9.8",
  "tonic",
  "url",
 ]
