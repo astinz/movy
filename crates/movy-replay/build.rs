@@ -37,20 +37,46 @@ fn build_std(test: bool) -> Vec<SuiCompiledPackage> {
 }
 
 fn local_sui_framework_packages() -> Vec<(&'static str, PathBuf)> {
-    let sui_root = std::env::var_os("MOVY_SUI_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../..")
-                .join("sui")
-        });
-    let packages = sui_root.join("crates/sui-framework/packages");
+    let mut sui_root = std::env::var_os("MOVY_SUI_ROOT").map(PathBuf::from);
+
+    if sui_root.is_none() {
+        if let Some(path) = find_sui_repo() {
+            sui_root = Some(path);
+        } else {
+            sui_root = Some(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../..")
+                    .join("sui"),
+            );
+        }
+    }
+
+    let packages = sui_root.unwrap().join("crates/sui-framework/packages");
     vec![
         ("Bridge", packages.join("bridge")),
         ("MoveStdlib", packages.join("move-stdlib")),
         ("Sui", packages.join("sui-framework")),
         ("SuiSystem", packages.join("sui-system")),
     ]
+}
+
+fn find_sui_repo() -> Option<PathBuf> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let output = std::process::Command::new(cargo)
+        .args(["metadata", "--format-version=1"])
+        .output()
+        .ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    for package in json["packages"].as_array()? {
+        let name = package["name"].as_str()?;
+        if name == "sui-framework" {
+            let manifest = package["manifest_path"].as_str()?;
+            let path = PathBuf::from(manifest);
+            let sui_root = path.parent()?.parent()?.parent()?;
+            return Some(sui_root.to_path_buf());
+        }
+    }
+    None
 }
 
 fn main() {
